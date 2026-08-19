@@ -1,0 +1,443 @@
+/* Estilos do Topo de Navegação Waze / Google Maps (Anexo 2) */
+
+.waze-top-bar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 92%;
+  max-width: 520px;
+  background: linear-gradient(135deg, #0B0E23 0%, var(--primary-navy) 100%);
+  color: #ffffff;
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 12px 32px rgba(11, 14, 35, 0.38), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  z-index: 1000;
+  box-sizing: border-box;
+  margin: 0;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Botão Integrado de Nova Rota */
+.waze-back-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  padding: 8px 12px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+@media (hover: hover) {
+  .waze-back-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateY(-1px);
+  }
+}
+
+.waze-maneuver-icon-box {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.waze-maneuver-svg {
+  width: 26px;
+  height: 26px;
+  stroke: #00E5FF;
+  stroke-width: 2.5;
+  fill: none;
+  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+}
+
+.waze-step-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.waze-distance-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.waze-step-distance {
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: #ffffff;
+  line-height: 1.1;
+}
+
+.waze-next-preview {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.waze-step-street {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #00E5FF;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.waze-top-right-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.waze-mini-action-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+@media (hover: hover) {
+  .waze-mini-action-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+}
+
+.waze-mini-action-btn.active {
+  background: var(--accent-blue);
+  box-shadow: 0 0 10px rgba(0, 132, 255, 0.6);
+}
+
+/* Velocímetro estilo Waze */
+.speedometer-widget {
+  position: absolute;
+  left: 16px;
+  bottom: calc(118px + env(safe-area-inset-bottom, 0px));
+  width: 58px;
+  height: 58px;
+  background: #11142E;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 50%;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 900;
+  cursor: pointer;
+  transition: bottom 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@media (hover: hover) {
+  .speedometer-widget:hover {
+    transform: scale(1.08);
+  }
+}
+
+.speedometer-val {
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1;
+}
+
+.speedometer-unit {
+  font-size: 7.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-light);
+  margin-top: 1px;
+}
+
+.speedometer-ring-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.speedometer-ring-bg {
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 3.5;
+  fill: none;
+}
+
+.speedometer-ring-fill {
+  stroke: var(--accent-cyan);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  fill: none;
+  stroke-dasharray: 188;
+  stroke-dashoffset: 140;
+  transition: stroke-dashoffset 0.25s ease, stroke 0.3s ease;
+}
+
+.speed-limit-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 22px;
+  height: 22px;
+  background: #ffffff;
+  border: 2px solid #E50914;
+  border-radius: 50%;
+  color: #11142E;
+  font-size: 8.5px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+/* Botão Abrir Rota no Waze (Gratuito) */
+.btn-waze-nav {
+  position: absolute;
+  right: 16px;
+  bottom: calc(178px + env(safe-area-inset-bottom, 0px));
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid var(--border-light);
+  box-shadow: 0 8px 24px rgba(30, 34, 79, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 900;
+  transition: bottom 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  text-decoration: none;
+}
+
+/* Botão Abrir Rota no Google Maps (Gratuito) */
+.btn-google-maps-nav {
+  position: absolute;
+  right: 16px;
+  bottom: calc(118px + env(safe-area-inset-bottom, 0px));
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid var(--border-light);
+  box-shadow: 0 8px 24px rgba(30, 34, 79, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 900;
+  transition: bottom 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  text-decoration: none;
+}
+
+/* Botão de Recentralizar Mapa (Fica acima do velocímetro e aparece apenas quando o mapa não está centralizado) */
+.btn-recenter-map {
+  position: absolute;
+  left: 16px;
+  bottom: calc(186px + env(safe-area-inset-bottom, 0px));
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: var(--primary-navy);
+  border: 1.5px solid var(--border-light);
+  box-shadow: 0 8px 24px rgba(30, 34, 79, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 900;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(12px) scale(0.9);
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+              visibility 0.25s ease,
+              bottom 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-recenter-map.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.btn-recenter-map svg {
+  color: var(--accent-blue);
+}
+
+.btn-recenter-map .recenter-label {
+  font-size: 7.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--primary-navy);
+  margin-top: 1px;
+}
+
+@media (hover: hover) {
+  .btn-recenter-map:hover {
+    transform: scale(1.08);
+    background: #F8FAFC;
+    box-shadow: 0 10px 28px rgba(0, 132, 255, 0.35);
+  }
+}
+
+/* Quando o card inferior expande, move os botões flutuantes para cima */
+.ui-overlay.sheet-expanded .speedometer-widget,
+.ui-overlay.sheet-expanded .btn-google-maps-nav {
+  bottom: calc(445px + env(safe-area-inset-bottom, 0px));
+}
+
+.ui-overlay.sheet-expanded .btn-recenter-map,
+.ui-overlay.sheet-expanded .btn-waze-nav {
+  bottom: calc(505px + env(safe-area-inset-bottom, 0px));
+}
+
+@media (hover: hover) {
+  .btn-waze-nav:hover {
+    transform: scale(1.1) translateY(-2px);
+    box-shadow: 0 12px 28px rgba(0, 212, 255, 0.4);
+  }
+
+  .btn-google-maps-nav:hover {
+    transform: scale(1.1) translateY(-2px);
+    box-shadow: 0 12px 28px rgba(0, 132, 255, 0.3);
+  }
+}
+
+.waze-icon-badge {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-waze-nav .badge-tooltip {
+  position: absolute;
+  right: 60px;
+  background: var(--primary-navy);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+@media (hover: hover) {
+  .btn-waze-nav:hover .badge-tooltip {
+    opacity: 1;
+  }
+}
+
+.gmaps-icon-badge {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-google-maps-nav .badge-tooltip {
+  position: absolute;
+  right: 60px;
+  background: var(--primary-navy);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+@media (hover: hover) {
+  .btn-google-maps-nav:hover .badge-tooltip {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 480px) {
+  .waze-top-bar {
+    width: calc(100% - 20px);
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .waze-back-text {
+    display: none;
+  }
+
+  .waze-back-btn {
+    padding: 8px;
+  }
+
+  .waze-maneuver-icon-box {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+  }
+
+  .waze-step-distance {
+    font-size: 18px;
+  }
+
+  .waze-step-street {
+    font-size: 12.5px;
+  }
+
+  .btn-google-maps-nav .badge-tooltip {
+    display: none;
+  }
+}
+

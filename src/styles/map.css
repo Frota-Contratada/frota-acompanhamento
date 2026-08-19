@@ -1,0 +1,153 @@
+/* Estilos do Mapa Leaflet com Visão Angulada 3D Waze e Rotação Suavizada */
+
+#map-viewport {
+  width: 100vw;
+  height: 100vh;
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  z-index: 1;
+  background-color: #EBF0F5;
+  perspective: 1200px;
+  perspective-origin: 50% 50%;
+}
+
+#map-rotator {
+  width: 200vw;
+  height: 200vh;
+  position: absolute;
+  top: -50vh;
+  left: -50vw;
+  transform-origin: 50% 50%;
+  transition: transform 0.55s cubic-bezier(0.12, 0.9, 0.24, 1);
+  will-change: transform;
+  transform-style: preserve-3d;
+}
+
+#map-container {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  background-color: #EBF0F5 !important;
+  font-family: var(--font-body) !important;
+}
+
+.leaflet-control-attribution {
+  display: none !important;
+}
+
+/* Marcadores Gerais */
+.custom-pin-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+/* Marcador de Origem */
+.origin-pin-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--primary-navy);
+  border: 3px solid #ffffff;
+  box-shadow: 0 4px 12px rgba(30, 34, 79, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.origin-pin-icon::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+/* Marcador de Destino */
+.destination-pin-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary-navy) 0%, #293072 100%);
+  border: 2.5px solid #ffffff;
+  box-shadow: 0 6px 16px rgba(30, 34, 79, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  position: relative;
+}
+
+.destination-pin-icon::before {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid var(--accent-blue);
+  animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+@keyframes pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  70% { transform: scale(1.8); opacity: 0; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* MARCADOR DO VEÍCULO - ESTILO WAZE 3D */
+.waze-vehicle-container {
+  width: 56px;
+  height: 56px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+
+.waze-vehicle-container:active {
+  cursor: grabbing;
+}
+
+/* Sombra suave no chão */
+.waze-vehicle-shadow {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 132, 255, 0.35) 0%, rgba(18, 21, 51, 0.2) 50%, rgba(0, 0, 0, 0) 75%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Invólucro da Seta com Transição de Rotação Suave */
+.waze-vehicle-arrow-wrapper {
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center center;
+  transition: transform 0.25s cubic-bezier(0.12, 0.9, 0.24, 1);
+  position: relative;
+  z-index: 2;
+  filter: drop-shadow(0 6px 12px rgba(11, 14, 35, 0.4));
+}
+
+.waze-arrow-svg {
+  width: 42px;
+  height: 42px;
+}
