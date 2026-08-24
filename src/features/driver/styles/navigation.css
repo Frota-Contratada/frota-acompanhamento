@@ -7,14 +7,15 @@
   transform: translateX(-50%);
   width: 92%;
   max-width: 520px;
-  background: linear-gradient(135deg, #0B0E23 0%, var(--primary-navy) 100%);
-  color: #ffffff;
+  background: var(--surface-card, #ffffff);
+  color: var(--primary-navy);
   border-radius: var(--radius-lg);
   padding: 12px 14px;
   display: flex;
   align-items: center;
   gap: 10px;
-  box-shadow: 0 12px 32px rgba(11, 14, 35, 0.38), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-light);
+  box-shadow: 0 12px 32px rgba(30, 34, 79, 0.2);
   z-index: 1000;
   box-sizing: border-box;
   margin: 0;
@@ -23,9 +24,9 @@
 
 /* Botão Integrado de Nova Rota */
 .waze-back-btn {
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #ffffff;
+  background: #F1F5F9;
+  border: 1px solid var(--border-light);
+  color: var(--primary-navy);
   padding: 8px 12px;
   border-radius: var(--radius-full);
   display: flex;
@@ -42,7 +43,7 @@
 
 @media (hover: hover) {
   .waze-back-btn:hover {
-    background: rgba(255, 255, 255, 0.25);
+    background: #E2E8F0;
     transform: translateY(-1px);
   }
 }
@@ -51,8 +52,8 @@
   width: 44px;
   height: 44px;
   min-width: 44px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  background: #EEF2FF;
+  border: 1.5px solid #C7D2FE;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
@@ -63,10 +64,10 @@
 .waze-maneuver-svg {
   width: 26px;
   height: 26px;
-  stroke: #00E5FF;
+  stroke: var(--accent-blue);
   stroke-width: 2.5;
   fill: none;
-  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+  filter: none;
 }
 
 .waze-step-info {
@@ -87,13 +88,13 @@
   font-size: 20px;
   font-weight: 800;
   letter-spacing: -0.5px;
-  color: #ffffff;
+  color: var(--primary-navy);
   line-height: 1.1;
 }
 
 .waze-next-preview {
   font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-muted);
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
@@ -103,7 +104,7 @@
 .waze-step-street {
   font-size: 13.5px;
   font-weight: 600;
-  color: #00E5FF;
+  color: var(--accent-blue);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -120,9 +121,9 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #ffffff;
+  background: #F1F5F9;
+  border: 1px solid var(--border-light);
+  color: var(--primary-navy);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -132,13 +133,21 @@
 
 @media (hover: hover) {
   .waze-mini-action-btn:hover {
-    background: rgba(255, 255, 255, 0.25);
+    background: #E2E8F0;
   }
 }
 
 .waze-mini-action-btn.active {
   background: var(--accent-blue);
-  box-shadow: 0 0 10px rgba(0, 132, 255, 0.6);
+  box-shadow: none;
+}
+
+.waze-mini-action-btn svg {
+  stroke: var(--primary-navy);
+}
+
+.waze-mini-action-btn.active svg {
+  stroke: #ffffff;
 }
 
 /* Velocímetro estilo Waze */
@@ -201,7 +210,7 @@
 }
 
 .speedometer-ring-fill {
-  stroke: var(--accent-cyan);
+  stroke: var(--accent-blue);
   stroke-width: 3.5;
   stroke-linecap: round;
   fill: none;
@@ -338,12 +347,12 @@
 @media (hover: hover) {
   .btn-waze-nav:hover {
     transform: scale(1.1) translateY(-2px);
-    box-shadow: 0 12px 28px rgba(0, 212, 255, 0.4);
+    box-shadow: 0 10px 24px rgba(30, 34, 79, 0.2);
   }
 
   .btn-google-maps-nav:hover {
     transform: scale(1.1) translateY(-2px);
-    box-shadow: 0 12px 28px rgba(0, 132, 255, 0.3);
+    box-shadow: 0 10px 24px rgba(30, 34, 79, 0.2);
   }
 }
 
@@ -440,4 +449,3 @@
     display: none;
   }
 }
-

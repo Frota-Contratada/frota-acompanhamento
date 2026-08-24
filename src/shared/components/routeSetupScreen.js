@@ -3,7 +3,7 @@
  * Ponto de partida restrito 100% ao GPS real do usuário.
  */
 
-import { APP_CONFIG } from '../config.js';
+import { DEFAULT_ROUTE } from '../config/routeConfig.js';
 import { addFastClickListener } from '../utils/domUtils.js';
 import { storageService } from '../services/storageService.js';
 import { autocompleteAddress } from '../services/geocodingService.js';
@@ -53,11 +53,11 @@ export const FAVORITE_PLACES = [
   }
 ];
 
-export class SetupScreen {
+export class RouteSetupScreen {
   constructor(containerId, options = {}) {
     this.container = document.getElementById(containerId);
     this.options = options;
-    this.currentDest = { ...APP_CONFIG.defaultRoute.destination };
+    this.currentDest = { ...DEFAULT_ROUTE.destination };
     this.userGpsCoords = null;
     this.isGpsReady = false;
     this.gpsErrorMessage = null;
@@ -185,15 +185,25 @@ export class SetupScreen {
   render() {
     if (!this.container) return;
 
+    const isPassenger = this.options.profile === 'passenger';
+    const badgeText = isPassenger ? 'Acompanhamento em Tempo Real' : 'Navegação GPS em Tempo Real';
+    const subtitle = isPassenger
+      ? 'Acompanhe o veículo e toda a rota até o destino em tempo real.'
+      : 'O trajeto sempre parte da sua localização atual por GPS em tempo real.';
+    const originText = isPassenger
+      ? 'Localização Atual do Veículo (GPS em Tempo Real)'
+      : 'Sua Localização Atual (GPS em Tempo Real)';
+    const submitText = isPassenger ? 'Acompanhar Corrida' : 'Iniciar Navegação GPS';
+
     this.container.innerHTML = `
       <div class="setup-card">
         <div class="setup-header">
           <div class="setup-badge">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polygon points="12 8 8 12 12 16 12 8"/></svg>
-            Navegação GPS em Tempo Real
+            ${badgeText}
           </div>
           <h1 class="setup-title">Para Onde Vamos?</h1>
-          <p class="setup-subtitle">O trajeto sempre parte da sua localização atual por GPS em tempo real.</p>
+          <p class="setup-subtitle">${subtitle}</p>
         </div>
 
         <form id="setup-form" class="setup-form-group">
@@ -211,7 +221,7 @@ export class SetupScreen {
             </div>
             <div class="setup-origin-gps-box">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-              <span>Sua Localização Atual (GPS em Tempo Real)</span>
+              <span>${originText}</span>
             </div>
             <div id="setup-gps-warning" class="setup-gps-warning" style="display: ${this.isGpsReady ? 'none' : 'flex'};">
               ${this.gpsErrorMessage || 'Ative a permissão de GPS para iniciar a navegação.'}
@@ -250,7 +260,7 @@ export class SetupScreen {
 
           <button type="submit" class="setup-submit-btn ${!this.isGpsReady ? 'disabled' : ''}" id="btn-submit-route" ${!this.isGpsReady ? 'disabled' : ''}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-            Iniciar Navegação GPS
+            ${submitText}
           </button>
         </form>
       </div>
@@ -276,7 +286,9 @@ export class SetupScreen {
         e.preventDefault();
 
         if (!this.isGpsReady || !this.userGpsCoords) {
-          alert('É necessário permitir o acesso ao GPS do seu dispositivo para iniciar a navegação.');
+          alert(this.options.profile === 'passenger'
+            ? 'É necessário permitir o acesso à localização para acompanhar a corrida neste protótipo.'
+            : 'É necessário permitir o acesso ao GPS do seu dispositivo para iniciar a navegação.');
           this.checkGpsAvailability();
           return;
         }

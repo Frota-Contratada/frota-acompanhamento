@@ -12,7 +12,7 @@ const SAVE_DEBOUNCE_MS = 800; // Salva o progresso a cada 800ms durante a simula
 
 export const storageService = {
   /**
-   * Salva a corrida ativa completa (configuração, geometria OSRM e progresso atual)
+   * Salva a corrida ativa completa (configuração, geometria da rota e progresso atual)
    */
   saveActiveRide(routeConfig, routeData, progress = null) {
     if (!routeConfig || !routeData) return;
@@ -99,7 +99,7 @@ export const storageService = {
   },
 
   /**
-   * Salva uma rota calculada pelo OSRM no cache persistente
+   * Salva uma rota calculada no cache persistente
    */
   setCachedRoute(cacheKey, routeData) {
     try {

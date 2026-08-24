@@ -3,8 +3,8 @@
  * Exibe instruções curva a curva usando os ícones oficiais Lucide/Feather em SVG puro (zero falhas de runtime).
  */
 
-import { formatWazeDistance } from '../services/geoUtils.js';
-import { addFastClickListener } from '../utils/domUtils.js';
+import { formatWazeDistance } from '../../../shared/utils/geoUtils.js';
+import { addFastClickListener } from '../../../shared/utils/domUtils.js';
 
 export class NavigationBar {
   constructor(elementId, options = {}) {

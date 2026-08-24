@@ -5,8 +5,8 @@
  * - Interação: Suporta arrastar para abrir/fechar além do clique.
  */
 
-import { formatDistance, formatDuration, formatETA } from '../services/geoUtils.js';
-import { addFastClickListener } from '../utils/domUtils.js';
+import { formatDistance, formatDuration, formatETA } from '../../../shared/utils/geoUtils.js';
+import { addFastClickListener } from '../../../shared/utils/domUtils.js';
 
 export class RideSheet {
   constructor(elementId, options = {}) {
@@ -24,6 +24,7 @@ export class RideSheet {
     this.isDragging = false;
     this.startY = 0;
     this.currentTranslateY = 0;
+    this.dragCleanup = null;
   }
 
   setRouteInfo(originName, destName) {
@@ -47,6 +48,9 @@ export class RideSheet {
     if (this.container) {
       this.container.classList.toggle('collapsed', !this.isExpanded);
       this.container.style.transform = '';
+      this.container.style.maxHeight = '';
+      this.container.style.removeProperty('--sheet-drag-progress');
+      this.container.classList.remove('dragging');
       const uiOverlay = document.querySelector('.ui-overlay');
       if (uiOverlay) {
         uiOverlay.classList.toggle('sheet-expanded', this.isExpanded);
@@ -88,8 +92,8 @@ export class RideSheet {
       uiOverlay.classList.toggle('sheet-expanded', this.isExpanded);
     }
 
-    const titleText = this.status === 'paused' ? 'Corrida em pausa' : 'Corrida em andamento';
     const isWaiting = this.status === 'waiting';
+    const titleText = this.status === 'paused' || isWaiting ? 'Corrida em pausa' : 'Corrida em andamento';
     const etaText = formatETA(this.remainingDuration);
     const durText = formatDuration(this.remainingDuration);
     const distText = formatDistance(this.remainingDistance);
@@ -220,50 +224,77 @@ export class RideSheet {
   setupDragGestures(element) {
     if (!element) return;
 
+    if (this.dragCleanup) this.dragCleanup();
+
     let startY = 0;
     let currentY = 0;
-    let isTouching = false;
+    let startHeight = 0;
+    let collapsedHeight = 108;
+    let expandedHeight = 0;
+    let activePointerId = null;
     this.hasDragged = false;
 
     const onPointerDown = (e) => {
-      isTouching = true;
+      if (activePointerId !== null || (e.button !== undefined && e.button !== 0)) return;
+      activePointerId = e.pointerId;
       this.hasDragged = false;
-      startY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+      startY = e.clientY;
       currentY = startY;
+      collapsedHeight = Math.min(108, element.scrollHeight);
+      expandedHeight = Math.max(collapsedHeight, Math.min(element.scrollHeight, window.innerHeight * 0.85));
+      startHeight = element.getBoundingClientRect().height;
+      element.setPointerCapture?.(e.pointerId);
+      element.classList.add('dragging');
       element.style.transition = 'none';
+      element.style.maxHeight = `${startHeight}px`;
+      element.style.setProperty('--sheet-drag-progress', this.isExpanded ? '1' : '0');
     };
 
     const onPointerMove = (e) => {
-      if (!isTouching) return;
-      currentY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+      if (e.pointerId !== activePointerId) return;
+      if (e.cancelable) e.preventDefault();
+      currentY = e.clientY;
       const deltaY = currentY - startY;
 
       if (Math.abs(deltaY) > 8) {
         this.hasDragged = true;
       }
 
-      // Se expandido e arrastando para baixo, ou retraído e arrastando para cima
-      if (this.isExpanded && deltaY > 0) {
-        element.style.transform = `translateX(-50%) translateY(${deltaY}px)`;
-      } else if (!this.isExpanded && deltaY < 0) {
-        element.style.transform = `translateX(-50%) translateY(${deltaY}px)`;
-      }
+      const nextHeight = Math.min(expandedHeight, Math.max(collapsedHeight, startHeight - deltaY));
+      const range = Math.max(1, expandedHeight - collapsedHeight);
+      const progress = (nextHeight - collapsedHeight) / range;
+      element.style.maxHeight = `${nextHeight}px`;
+      element.style.setProperty('--sheet-drag-progress', progress.toFixed(3));
     };
 
     const onPointerUp = (e) => {
-      if (!isTouching) return;
-      isTouching = false;
-      element.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), max-height 0.3s ease';
+      if (e.pointerId !== activePointerId) return;
+      element.releasePointerCapture?.(activePointerId);
+      activePointerId = null;
 
       const deltaY = currentY - startY;
+      const currentHeight = element.getBoundingClientRect().height;
+      const range = Math.max(1, expandedHeight - collapsedHeight);
+      const progress = (currentHeight - collapsedHeight) / range;
+      const shouldExpand = Math.abs(deltaY) > 24 ? deltaY < 0 : progress >= 0.5;
 
-      if (this.isExpanded && deltaY > 40) {
-        this.setExpanded(false);
-      } else if (!this.isExpanded && deltaY < -30) {
-        this.setExpanded(true);
-      } else {
-        element.style.transform = 'translateX(-50%)';
-      }
+      this.isExpanded = shouldExpand;
+      element.classList.toggle('collapsed', !shouldExpand);
+      const uiOverlay = document.querySelector('.ui-overlay');
+      if (uiOverlay) uiOverlay.classList.toggle('sheet-expanded', shouldExpand);
+
+      element.style.transition = 'max-height 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
+      element.style.maxHeight = `${currentHeight}px`;
+      element.style.setProperty('--sheet-drag-progress', shouldExpand ? '1' : '0');
+      void element.offsetHeight;
+      element.style.maxHeight = `${shouldExpand ? expandedHeight : collapsedHeight}px`;
+
+      window.setTimeout(() => {
+        element.classList.remove('dragging');
+        element.style.transition = '';
+        element.style.maxHeight = '';
+        element.style.removeProperty('--sheet-drag-progress');
+      }, 300);
     };
 
     element.addEventListener('pointerdown', onPointerDown);
@@ -271,9 +302,11 @@ export class RideSheet {
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerUp);
 
-    // Fallback touch events
-    element.addEventListener('touchstart', onPointerDown, { passive: true });
-    window.addEventListener('touchmove', onPointerMove, { passive: true });
-    window.addEventListener('touchend', onPointerUp);
+    this.dragCleanup = () => {
+      element.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
   }
 }

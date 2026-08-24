@@ -3,7 +3,7 @@
  * Só exibe limite de velocidade e velocidade do usuário se as informações estiverem disponíveis.
  */
 
-import { addFastClickListener } from '../utils/domUtils.js';
+import { addFastClickListener } from '../../../shared/utils/domUtils.js';
 
 export class Speedometer {
   constructor(elementId, options = {}) {
