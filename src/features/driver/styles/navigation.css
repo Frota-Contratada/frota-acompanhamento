@@ -1,4 +1,4 @@
-/* Estilos do Topo de Navegação Waze / Google Maps (Anexo 2) */
+/* Estilos do topo de navegação do motorista. */
 
 .waze-top-bar {
   position: absolute;
@@ -20,32 +20,6 @@
   box-sizing: border-box;
   margin: 0;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Botão Integrado de Nova Rota */
-.waze-back-btn {
-  background: #F1F5F9;
-  border: 1px solid var(--border-light);
-  color: var(--primary-navy);
-  padding: 8px 12px;
-  border-radius: var(--radius-full);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  cursor: pointer;
-  font-family: var(--font-heading);
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-
-@media (hover: hover) {
-  .waze-back-btn:hover {
-    background: #E2E8F0;
-    transform: translateY(-1px);
-  }
 }
 
 .waze-maneuver-icon-box {
@@ -237,36 +211,15 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
-/* Botão Abrir Rota no Waze (Gratuito) */
-.btn-waze-nav {
-  position: absolute;
-  right: 16px;
-  bottom: calc(178px + env(safe-area-inset-bottom, 0px));
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  background: #ffffff;
-  border: 1px solid var(--border-light);
-  box-shadow: 0 8px 24px rgba(30, 34, 79, 0.22);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 900;
-  transition: bottom 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-  text-decoration: none;
-}
-
-/* Botão Abrir Rota no Google Maps (Gratuito) */
+.btn-waze-nav,
 .btn-google-maps-nav {
   position: absolute;
   right: 16px;
-  bottom: calc(118px + env(safe-area-inset-bottom, 0px));
   width: 50px;
   height: 50px;
+  border: 1px solid var(--border-light);
   border-radius: 50%;
   background: #ffffff;
-  border: 1px solid var(--border-light);
   box-shadow: 0 8px 24px rgba(30, 34, 79, 0.22);
   display: flex;
   align-items: center;
@@ -274,7 +227,52 @@
   cursor: pointer;
   z-index: 900;
   transition: bottom 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-  text-decoration: none;
+}
+
+.btn-waze-nav {
+  bottom: calc(178px + env(safe-area-inset-bottom, 0px));
+}
+
+.btn-google-maps-nav {
+  bottom: calc(118px + env(safe-area-inset-bottom, 0px));
+}
+
+.waze-icon-badge,
+.gmaps-icon-badge {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-waze-nav .badge-tooltip,
+.btn-google-maps-nav .badge-tooltip {
+  position: absolute;
+  right: 60px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--primary-navy);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+@media (hover: hover) {
+  .btn-waze-nav:hover,
+  .btn-google-maps-nav:hover {
+    transform: scale(1.08) translateY(-2px);
+  }
+
+  .btn-waze-nav:hover .badge-tooltip,
+  .btn-google-maps-nav:hover .badge-tooltip {
+    opacity: 1;
+  }
 }
 
 /* Botão de Recentralizar Mapa (Fica acima do velocímetro e aparece apenas quando o mapa não está centralizado) */
@@ -344,91 +342,11 @@
   bottom: calc(505px + env(safe-area-inset-bottom, 0px));
 }
 
-@media (hover: hover) {
-  .btn-waze-nav:hover {
-    transform: scale(1.1) translateY(-2px);
-    box-shadow: 0 10px 24px rgba(30, 34, 79, 0.2);
-  }
-
-  .btn-google-maps-nav:hover {
-    transform: scale(1.1) translateY(-2px);
-    box-shadow: 0 10px 24px rgba(30, 34, 79, 0.2);
-  }
-}
-
-.waze-icon-badge {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.btn-waze-nav .badge-tooltip {
-  position: absolute;
-  right: 60px;
-  background: var(--primary-navy);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 5px 10px;
-  border-radius: 8px;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-@media (hover: hover) {
-  .btn-waze-nav:hover .badge-tooltip {
-    opacity: 1;
-  }
-}
-
-.gmaps-icon-badge {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.btn-google-maps-nav .badge-tooltip {
-  position: absolute;
-  right: 60px;
-  background: var(--primary-navy);
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 5px 10px;
-  border-radius: 8px;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-@media (hover: hover) {
-  .btn-google-maps-nav:hover .badge-tooltip {
-    opacity: 1;
-  }
-}
-
 @media (max-width: 480px) {
   .waze-top-bar {
     width: calc(100% - 20px);
     padding: 10px 12px;
     gap: 8px;
-  }
-
-  .waze-back-text {
-    display: none;
-  }
-
-  .waze-back-btn {
-    padding: 8px;
   }
 
   .waze-maneuver-icon-box {
@@ -445,7 +363,9 @@
     font-size: 12.5px;
   }
 
+  .btn-waze-nav .badge-tooltip,
   .btn-google-maps-nav .badge-tooltip {
     display: none;
   }
+
 }

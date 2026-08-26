@@ -1,18 +1,16 @@
 import { DEFAULT_ROUTE } from '../../shared/config/routeConfig.js';
-import { RouteSetupScreen } from '../../shared/components/routeSetupScreen.js';
-import { storageService } from '../../shared/services/storageService.js';
-import { fetchTomTomRoute } from '../../shared/services/tomtomService.js';
 import {
   calculateBearing,
   calculateDistance,
   minDistanceToPolyline
 } from '../../shared/utils/geoUtils.js';
 import { addFastClickListener } from '../../shared/utils/domUtils.js';
+import { adaptCanonicalRoute } from '../../shared/integration/tripContract.js';
+import { createDemoVehiclePosition, DEMO_CANONICAL_ROUTE } from '../../shared/simulation/demoTrip.js';
 import { PassengerMapManager } from './components/passengerMapManager.js';
 import { PassengerRideCard } from './components/passengerRideCard.js';
 import { renderPassengerShell } from './passengerShell.js';
 import './styles/passenger.css';
-import '../../shared/styles/setupScreen.css';
 
 const passengerState = {
   destination: null,
@@ -21,10 +19,10 @@ const passengerState = {
   routeData: null,
   routeGeometryDistance: 0,
   routeRemainingByIndex: [],
-  watchId: null,
-  offRouteReadings: 0,
-  isRecalculating: false,
-  lastRerouteAt: 0
+  routeVersion: 0,
+  latestVehicleTimestamp: 0,
+  tripStatus: 'in_progress',
+  waiting: false
 };
 
 const simulatorState = {
@@ -39,10 +37,14 @@ const simulatorState = {
 
 let mapManager;
 let rideCard;
-let setupScreen;
+let tripBridge;
+let isEmbedded = false;
 
-async function initializePassengerApp() {
-  passengerState.destination = storageService.loadActiveDestination() || DEFAULT_ROUTE.destination;
+async function initializePassengerApp(options = {}) {
+  tripBridge = options.tripBridge;
+  isEmbedded = Boolean(tripBridge?.isEmbedded());
+  document.documentElement.dataset.runtime = isEmbedded ? 'flutter' : 'standalone';
+  passengerState.destination = DEFAULT_ROUTE.destination;
   const fallbackCenter = [passengerState.destination.lat, passengerState.destination.lng];
 
   mapManager = new PassengerMapManager('passenger-map', {
@@ -54,22 +56,108 @@ async function initializePassengerApp() {
   rideCard.setRouteInfo('Localização atual do veículo', passengerState.destination.name);
   updateDestinationTitle();
 
-  setupScreen = new RouteSetupScreen('setup-page-container', {
-    profile: 'passenger',
-    onStartRoute: async (routeConfig) => {
-      passengerState.destination = routeConfig.destination;
-      storageService.saveActiveDestination(routeConfig.destination);
-      rideCard.setRouteInfo('Localização atual do veículo', routeConfig.destination.name);
-      updateDestinationTitle();
-      await calculateAndApplyRoute(passengerState.vehiclePosition || [routeConfig.origin.lat, routeConfig.origin.lng]);
-    }
-  });
-  setupScreen.init();
-  setupScreen.setDestination(passengerState.destination);
-
   bindPassengerEvents();
   initializeSimulatorPanel();
-  requestVehicleLocationAndRoute();
+  if (isEmbedded) {
+    configureEmbeddedPassengerUi();
+    tripBridge.subscribe(handleFlutterTripMessage);
+    showAlert('Sincronizando rota e posição do veículo…', 'Carregando corrida');
+  } else {
+    applyAuthoritativeRoute(DEMO_CANONICAL_ROUTE, { initial: true });
+    applyAuthoritativeVehicle(createDemoVehiclePosition(), { animate: false });
+    hideAlert();
+  }
+}
+
+function configureEmbeddedPassengerUi() {
+  document.getElementById('passenger-simulator')?.setAttribute('hidden', '');
+}
+
+function applyAuthoritativeRoute(canonicalRoute, { initial = false } = {}) {
+  if (canonicalRoute.version <= passengerState.routeVersion) return false;
+  const routeData = adaptCanonicalRoute(canonicalRoute);
+  passengerState.routeVersion = canonicalRoute.version;
+  passengerState.routeData = routeData;
+  passengerState.destination = {
+    id: canonicalRoute.destination.id,
+    name: canonicalRoute.destination.label,
+    address: canonicalRoute.destination.label,
+    lat: canonicalRoute.destination.lat,
+    lng: canonicalRoute.destination.lng
+  };
+  prepareRouteProgress(routeData.coordinates);
+  mapManager.drawRoute(routeData.coordinates, routeData.trafficSections);
+  mapManager.setOriginMarker([canonicalRoute.origin.lat, canonicalRoute.origin.lng]);
+  mapManager.setDestinationMarker([canonicalRoute.destination.lat, canonicalRoute.destination.lng]);
+  mapManager.setStopMarkers(canonicalRoute.stops);
+  rideCard.setRouteInfo(canonicalRoute.origin.label, canonicalRoute.destination.label);
+  rideCard.updateMetrics(routeData.distanceMeters, routeData.durationSeconds, routeData.trafficDelaySeconds);
+  updateDestinationTitle();
+  if (initial || mapManager.isOverview) mapManager.showRouteOverview();
+  return true;
+}
+
+function applyAuthoritativeVehicle(position, { animate = true } = {}) {
+  const timestamp = Date.parse(position.timestamp);
+  if (!Number.isFinite(timestamp) || timestamp <= passengerState.latestVehicleTimestamp) return;
+  passengerState.latestVehicleTimestamp = timestamp;
+  updateVehicle(
+    [position.lat, position.lng],
+    Number(position.heading) || 0,
+    Math.max(0, Number(position.speed) || 0) * 3.6,
+    { animate }
+  );
+}
+
+function setPassengerTripStatus(status) {
+  passengerState.tripStatus = status;
+  updatePassengerStatusLabel();
+}
+
+function updatePassengerStatusLabel() {
+  const status = document.querySelector('.passenger-eyebrow');
+  const liveBadge = document.querySelector('.passenger-live-badge');
+  if (!status) return;
+  if (passengerState.tripStatus === 'finished' || passengerState.tripStatus === 'completed') {
+    status.textContent = 'Corrida finalizada';
+    if (liveBadge) liveBadge.hidden = true;
+  } else if (passengerState.waiting) {
+    status.textContent = 'Motorista aguardando passageiro';
+  } else {
+    status.textContent = 'Corrida em andamento';
+    if (liveBadge) liveBadge.hidden = false;
+  }
+}
+
+function handleFlutterTripMessage(message) {
+  const { type, payload } = message;
+  if (type === 'trip.bootstrap') {
+    if (payload.role !== 'passenger') {
+      showAlert('Os dados recebidos não pertencem à visão do passageiro.');
+      return;
+    }
+    applyAuthoritativeRoute(payload.route, { initial: true });
+    passengerState.waiting = payload.waiting.active;
+    setPassengerTripStatus(payload.tripStatus);
+    if (payload.vehiclePosition) applyAuthoritativeVehicle(payload.vehiclePosition, { animate: false });
+    hideAlert();
+  } else if (type === 'vehicle.location') {
+    applyAuthoritativeVehicle(payload);
+  } else if (type === 'passenger.location') {
+    // A posição do passageiro é auxiliar e nunca representa o veículo.
+  } else if (type === 'route.replaced') {
+    if (applyAuthoritativeRoute(payload)) hideAlert();
+  } else if (type === 'waiting.changed') {
+    passengerState.waiting = payload.active;
+    updatePassengerStatusLabel();
+  } else if (type === 'trip.statusChanged') {
+    setPassengerTripStatus(payload.tripStatus);
+  } else if (type === 'connection.changed') {
+    if (payload.connected) hideAlert();
+    else showAlert('Exibindo a última posição recebida do veículo.', 'Sem conexão');
+  } else if (type === 'command.failed') {
+    showAlert(payload.reason || 'Não foi possível atualizar a corrida.');
+  }
 }
 
 function updateDestinationTitle() {
@@ -77,56 +165,19 @@ function updateDestinationTitle() {
   if (element) element.textContent = passengerState.destination?.name || 'Destino da corrida';
 }
 
-function requestVehicleLocationAndRoute() {
-  if (!('geolocation' in navigator)) {
-    showAlert('Este navegador não possui suporte à localização.');
-    return;
-  }
-
-  navigator.geolocation.getCurrentPosition(
-    async (position) => {
-      const coordinates = [position.coords.latitude, position.coords.longitude];
-      passengerState.vehiclePosition = coordinates;
-      mapManager.updateVehiclePosition(coordinates, passengerState.vehicleBearing, false);
-      await calculateAndApplyRoute(coordinates);
-      startVehicleTracking();
-    },
-    (error) => {
-      console.warn('Não foi possível obter a localização inicial do veículo:', error);
-      showAlert('Permita o acesso à localização para acompanhar o veículo neste protótipo.');
-    },
-    { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 }
-  );
-}
-
-function startVehicleTracking() {
-  if (passengerState.watchId !== null || !('geolocation' in navigator)) return;
-
-  passengerState.watchId = navigator.geolocation.watchPosition(
-    (position) => {
-      if (simulatorState.enabled) return;
-      const coordinates = [position.coords.latitude, position.coords.longitude];
-      const speedKmH = Number.isFinite(position.coords.speed) ? position.coords.speed * 3.6 : 0;
-      updateVehicle(coordinates, position.coords.heading, speedKmH);
-    },
-    (error) => {
-      if (!simulatorState.enabled) {
-        console.warn('Falha ao atualizar localização do veículo:', error);
-        showAlert('O sinal de localização está temporariamente indisponível.');
-      }
-    },
-    { enableHighAccuracy: true, timeout: 15000, maximumAge: 3000 }
-  );
-}
-
-function updateVehicle(position, sensorBearing = null, speedKmH = 0) {
+function updateVehicle(position, sensorBearing = null, speedKmH = 0, options = {}) {
   const previous = passengerState.vehiclePosition;
   const movedMeters = previous
     ? calculateDistance(previous[0], previous[1], position[0], position[1])
     : 0;
+  const routeBearing = getRouteBearingAtPosition(position);
 
   let bearing = passengerState.vehicleBearing;
-  if (Number.isFinite(sensorBearing) && speedKmH >= 7) {
+  if (Number.isFinite(routeBearing)) {
+    // Enquanto o veículo estiver sobre a rota, a geometria canônica é a
+    // referência mais estável e mantém a seta alinhada mesmo quando parado.
+    bearing = routeBearing;
+  } else if (Number.isFinite(sensorBearing) && speedKmH >= 7) {
     bearing = sensorBearing;
   } else if (previous && movedMeters >= 6 && speedKmH >= 4) {
     bearing = calculateBearing(previous[0], previous[1], position[0], position[1]);
@@ -134,51 +185,24 @@ function updateVehicle(position, sensorBearing = null, speedKmH = 0) {
 
   passengerState.vehiclePosition = position;
   passengerState.vehicleBearing = bearing;
-  mapManager.updateVehiclePosition(position, bearing, true);
+  mapManager.updateVehiclePosition(position, bearing, options.animate !== false);
   updateRouteProgress(position);
-  monitorRouteDeviation(position);
   hideAlert();
 }
 
-async function calculateAndApplyRoute(startPosition, { keepViewport = false } = {}) {
-  if (!startPosition || !passengerState.destination || passengerState.isRecalculating) return null;
-  passengerState.isRecalculating = true;
+function getRouteBearingAtPosition(position) {
+  const coordinates = passengerState.routeData?.coordinates;
+  if (!position || !coordinates || coordinates.length < 2) return null;
 
-  try {
-    const destination = [passengerState.destination.lat, passengerState.destination.lng];
-    const routeData = await fetchTomTomRoute(startPosition, destination);
-    if (!routeData || routeData.success === false) {
-      showAlert(routeData?.message || 'Não foi possível carregar a rota da corrida.');
-      return null;
-    }
+  const match = minDistanceToPolyline(position, coordinates, 80);
+  if (match.isOffRoute) return null;
 
-    passengerState.routeData = routeData;
-    passengerState.offRouteReadings = 0;
-    prepareRouteProgress(routeData.coordinates);
-
-    const status = document.querySelector('.passenger-eyebrow');
-    if (status) status.textContent = 'Corrida em andamento';
-
-    mapManager.drawRoute(routeData.coordinates, routeData.trafficSections);
-    mapManager.setOriginMarker(startPosition);
-    mapManager.setDestinationMarker(destination);
-    mapManager.updateVehiclePosition(startPosition, passengerState.vehicleBearing, false);
-    rideCard.updateMetrics(
-      routeData.distanceMeters,
-      routeData.durationSeconds,
-      routeData.trafficDelaySeconds
-    );
-
-    if (!keepViewport) mapManager.showRouteOverview();
-    hideAlert();
-    return routeData;
-  } catch (error) {
-    console.error('Falha ao carregar a corrida do passageiro:', error);
-    showAlert('Não foi possível atualizar a rota. Verifique sua conexão.');
-    return null;
-  } finally {
-    passengerState.isRecalculating = false;
-  }
+  const segmentIndex = Math.min(match.closestIndex, coordinates.length - 2);
+  const segmentStart = coordinates[segmentIndex];
+  const segmentEnd = coordinates[segmentIndex + 1];
+  return calculateBearing(
+    segmentStart[0], segmentStart[1], segmentEnd[0], segmentEnd[1]
+  );
 }
 
 function prepareRouteProgress(coordinates) {
@@ -216,19 +240,6 @@ function updateRouteProgress(position) {
   }
 }
 
-function monitorRouteDeviation(position) {
-  if (simulatorState.enabled || passengerState.isRecalculating || !passengerState.routeData) return;
-  const match = minDistanceToPolyline(position, passengerState.routeData.coordinates, 80);
-  passengerState.offRouteReadings = match.isOffRoute ? passengerState.offRouteReadings + 1 : 0;
-
-  const cooldownElapsed = Date.now() - passengerState.lastRerouteAt > 10000;
-  if (passengerState.offRouteReadings >= 3 && cooldownElapsed) {
-    passengerState.lastRerouteAt = Date.now();
-    passengerState.offRouteReadings = 0;
-    calculateAndApplyRoute(position, { keepViewport: !mapManager.isOverview });
-  }
-}
-
 function updateOverviewButton(isOverview) {
   const button = document.getElementById('passenger-recenter');
   if (!button) return;
@@ -238,9 +249,11 @@ function updateOverviewButton(isOverview) {
   button.setAttribute('aria-hidden', String(!shouldShow));
 }
 
-function showAlert(message) {
+function showAlert(message, title = 'Não foi possível atualizar a corrida') {
   const alert = document.getElementById('passenger-alert');
   const text = document.getElementById('passenger-alert-text');
+  const titleElement = document.getElementById('passenger-alert-title');
+  if (titleElement) titleElement.textContent = title;
   if (text) text.textContent = message;
   if (alert) alert.hidden = false;
 }
@@ -251,40 +264,19 @@ function hideAlert() {
 }
 
 function bindPassengerEvents() {
-  addFastClickListener(document.getElementById('passenger-new-route'), () => {
-    pauseSimulator();
-    setupScreen.setDestination(passengerState.destination);
-    setupScreen.show();
-  });
-
   addFastClickListener(document.getElementById('passenger-recenter'), () => {
     mapManager.showRouteOverview();
   });
 
-  addFastClickListener(document.getElementById('passenger-alert-retry'), () => {
-    hideAlert();
-    if (passengerState.vehiclePosition) calculateAndApplyRoute(passengerState.vehiclePosition);
-    else requestVehicleLocationAndRoute();
-  });
-
   addFastClickListener(document.getElementById('passenger-simulator-play'), playSimulator);
   addFastClickListener(document.getElementById('passenger-simulator-pause'), pauseSimulator);
-  addFastClickListener(document.getElementById('passenger-simulator-gps'), returnToGps);
-
-  window.addEventListener('offline', () => showAlert('Você perdeu a conexão com a internet.'));
-  window.addEventListener('online', () => {
-    hideAlert();
-    if (passengerState.vehiclePosition) {
-      calculateAndApplyRoute(passengerState.vehiclePosition, { keepViewport: !mapManager.isOverview });
-    }
-  });
+  addFastClickListener(document.getElementById('passenger-simulator-gps'), resetSimulator);
 }
 
 function initializeSimulatorPanel() {
   const panel = document.getElementById('passenger-simulator');
-  const enabledByQuery = new URLSearchParams(window.location.search).get('simulator') === '1';
-  if (panel) panel.hidden = !(import.meta.env.DEV || enabledByQuery);
-  updateSimulatorUi('GPS real');
+  if (panel) panel.hidden = isEmbedded;
+  updateSimulatorUi(isEmbedded ? 'Posição do aplicativo' : 'Pronto para simular');
 }
 
 function enableSimulator() {
@@ -358,28 +350,19 @@ function pauseSimulator() {
   if (simulatorState.timerId !== null) window.clearInterval(simulatorState.timerId);
   simulatorState.timerId = null;
   simulatorState.playing = false;
-  updateSimulatorUi(simulatorState.enabled ? 'Pausado' : 'GPS real');
+  updateSimulatorUi(simulatorState.enabled ? 'Pausado' : 'Pronto para simular');
 }
 
-function returnToGps() {
+function resetSimulator() {
   pauseSimulator();
   simulatorState.enabled = false;
   simulatorState.position = null;
   simulatorState.coordinateIndex = 0;
-  updateSimulatorUi('GPS real');
-  requestCurrentGpsUpdate();
-}
-
-function requestCurrentGpsUpdate() {
-  navigator.geolocation?.getCurrentPosition(
-    (position) => updateVehicle(
-      [position.coords.latitude, position.coords.longitude],
-      position.coords.heading,
-      Number.isFinite(position.coords.speed) ? position.coords.speed * 3.6 : 0
-    ),
-    () => showAlert('Não foi possível voltar ao GPS agora.'),
-    { enableHighAccuracy: true, timeout: 12000, maximumAge: 3000 }
-  );
+  passengerState.routeVersion = 0;
+  passengerState.latestVehicleTimestamp = 0;
+  applyAuthoritativeRoute(DEMO_CANONICAL_ROUTE, { initial: true });
+  applyAuthoritativeVehicle(createDemoVehiclePosition(), { animate: false });
+  updateSimulatorUi('Pronto para simular');
 }
 
 function updateSimulatorUi(statusText) {
@@ -393,18 +376,19 @@ function updateSimulatorUi(statusText) {
   if (gps) gps.disabled = !simulatorState.enabled;
 }
 
-export function mountPassengerApp() {
+export function mountPassengerApp(options = {}) {
   document.documentElement.dataset.appRole = 'passenger';
 
-  const start = () => {
+  const start = async () => {
     renderPassengerShell(document.getElementById('app'));
     document.title = 'Acompanhar Corrida - Sistema de Frotas';
-    initializePassengerApp();
+    await initializePassengerApp(options);
   };
 
   if (document.readyState === 'loading') {
-    window.addEventListener('DOMContentLoaded', start, { once: true });
-    return;
+    return new Promise((resolve, reject) => {
+      window.addEventListener('DOMContentLoaded', () => start().then(resolve, reject), { once: true });
+    });
   }
-  start();
+  return start();
 }

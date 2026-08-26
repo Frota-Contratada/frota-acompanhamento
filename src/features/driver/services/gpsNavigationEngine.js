@@ -1,13 +1,11 @@
 /**
- * Motor de Navegação Baseado em GPS Real em Tempo Real
- * Rastreia o sensor de GPS do smartphone (watchPosition),
- * calcula velocidade, azimute, desvio de rota, manobras e métricas.
+ * Motor de navegação alimentado por posições do Flutter ou do simulador.
+ * Calcula projeção na rota, desvio, manobras e métricas.
  */
 
 import { APP_CONFIG } from '../config.js';
 import {
   calculateDistance,
-  calculateBearing,
   minDistanceToPolyline
 } from '../../../shared/utils/geoUtils.js';
 
@@ -20,16 +18,12 @@ export class GpsNavigationEngine {
     this.currentPosition = null;
     this.currentBearing = 0;
     this.currentSpeedKmH = 0;
-    this.watchId = null;
-    this.isTracking = false;
     this.isRerouting = false;
     this.activeStepIndex = 0;
     this.routeDistanceMeters = 0;
     this.routeDurationSeconds = 0;
     this.lastSpokenStepIndex = -1;
     this.closestCoordIndex = 0;
-    this.lastGpsTimestamp = 0;
-    this.lastAcceptedGpsTimestamp = 0;
     this.gpsUpdateIntervalMs = 1000;
     this.offRouteReadings = 0;
     this.lastRerouteAttemptAt = 0;
@@ -49,113 +43,6 @@ export class GpsNavigationEngine {
 
     if (this.currentPosition) {
       this.processGpsUpdate(this.currentPosition, this.currentBearing, this.currentSpeedKmH);
-    }
-  }
-
-  startGpsTracking() {
-    if (!('geolocation' in navigator)) {
-      if (this.options.onGpsError) {
-        this.options.onGpsError('Geolocalização não suportada no seu navegador.');
-      }
-      return;
-    }
-
-    if (this.watchId !== null) {
-      navigator.geolocation.clearWatch(this.watchId);
-    }
-
-    this.isTracking = true;
-
-    this.watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const { latitude, longitude, speed, heading, accuracy } = pos.coords;
-        const newPos = [latitude, longitude];
-        const gpsTimestamp = pos.timestamp || Date.now();
-        let inferredSpeedKmH = 0;
-        let distanceMeters = 0;
-
-        // Descarta saltos incompatíveis com um veículo. Leituras esparsas normais
-        // continuam válidas e são suavizadas visualmente pelo MapManager.
-        if (this.currentPosition && this.lastGpsTimestamp) {
-          const sampleElapsedSeconds = Math.max(0.1, (gpsTimestamp - this.lastGpsTimestamp) / 1000);
-          const movementElapsedSeconds = Math.max(
-            0.1,
-            (gpsTimestamp - (this.lastAcceptedGpsTimestamp || this.lastGpsTimestamp)) / 1000
-          );
-          this.gpsUpdateIntervalMs = Math.min(2500, Math.max(400, sampleElapsedSeconds * 1000));
-          distanceMeters = calculateDistance(
-            this.currentPosition[0],
-            this.currentPosition[1],
-            newPos[0],
-            newPos[1]
-          );
-          inferredSpeedKmH = (distanceMeters / movementElapsedSeconds) * 3.6;
-          const reportedSpeedKmH = Number.isFinite(speed) ? speed * 3.6 : 0;
-          const isImplausibleJump = inferredSpeedKmH > 220
-            && reportedSpeedKmH < 180
-            && (accuracy || 0) > 20;
-
-          if (isImplausibleJump) {
-            console.warn('Salto impreciso do GPS ignorado:', {
-              distanceMeters: Math.round(distanceMeters),
-              accuracy: Math.round(accuracy || 0)
-            });
-            return;
-          }
-        }
-        this.lastGpsTimestamp = gpsTimestamp;
-
-        // Só considera deslocamento quando ele supera a incerteza informada pelo
-        // sensor. Girar ou inclinar o celular parado não deve alterar o rumo.
-        const movementThresholdMeters = Math.max(8, Math.min(Number(accuracy) || 8, 20));
-        const reportedSpeedKmH = Number.isFinite(speed) ? speed * 3.6 : 0;
-        const hasReliableMovement = !this.currentPosition
-          || reportedSpeedKmH >= 4
-          || distanceMeters >= movementThresholdMeters;
-
-        // Velocidade real do GPS em km/h
-        let currentSpeed = 0;
-        if (speed !== null && !isNaN(speed) && speed > 0) {
-          currentSpeed = Math.round(speed * 3.6);
-        } else if (hasReliableMovement && inferredSpeedKmH > 0 && inferredSpeedKmH <= 220) {
-          currentSpeed = Math.round(inferredSpeedKmH);
-        }
-        this.currentSpeedKmH = currentSpeed;
-
-        // Mantém o último rumo enquanto parado. O heading só é aceito quando
-        // existe velocidade e deslocamento confiáveis.
-        if (hasReliableMovement && currentSpeed >= 8 && heading !== null && !isNaN(heading) && heading >= 0) {
-          this.currentBearing = heading;
-        } else if (hasReliableMovement && currentSpeed >= 8 && this.currentPosition) {
-          if (distanceMeters >= movementThresholdMeters) {
-            this.currentBearing = calculateBearing(this.currentPosition[0], this.currentPosition[1], newPos[0], newPos[1]);
-          }
-        }
-
-        const stablePosition = hasReliableMovement ? newPos : (this.currentPosition || newPos);
-        if (hasReliableMovement) this.lastAcceptedGpsTimestamp = gpsTimestamp;
-        this.currentPosition = stablePosition;
-        this.processGpsUpdate(stablePosition, this.currentBearing, this.currentSpeedKmH, accuracy);
-      },
-      (err) => {
-        console.warn('Erro no sensor GPS:', err);
-        if (this.options.onGpsError) {
-          this.options.onGpsError('Sinal de GPS indisponível ou permissão não concedida.');
-        }
-      },
-      {
-        enableHighAccuracy: true,
-        maximumAge: 1000,
-        timeout: 10000
-      }
-    );
-  }
-
-  stopGpsTracking() {
-    this.isTracking = false;
-    if (this.watchId !== null) {
-      navigator.geolocation.clearWatch(this.watchId);
-      this.watchId = null;
     }
   }
 
@@ -232,8 +119,8 @@ export class GpsNavigationEngine {
       );
     }
 
-    // Mantém a velocidade média prevista pela rota TomTom, que já incorpora
-    // trânsito histórico e ao vivo, em vez de substituir o ETA pela velocidade instantânea.
+    // Mantém a duração prevista pela rota canônica, em vez de substituir o ETA
+    // pela velocidade instantânea.
     const remainingDurationSeconds = this.routeDistanceMeters > 0 && this.routeDurationSeconds > 0
       ? Math.round(this.routeDurationSeconds * (remainingMeters / this.routeDistanceMeters))
       : 0;

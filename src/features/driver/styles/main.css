@@ -42,13 +42,8 @@
 /* Otimização Universal de Toque Mobile para Botões */
 button,
 .fab-btn,
-.btn-back-to-setup,
-.preset-chip-btn,
-.btn-waze-nav,
-.btn-google-maps-nav,
 .speedometer-widget,
 .waze-mini-action-btn,
-.waze-back-btn,
 .status-pill-badge {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -60,9 +55,6 @@ button,
 
 button:active,
 .fab-btn:active,
-.preset-chip-btn:active,
-.btn-waze-nav:active,
-.btn-google-maps-nav:active,
 .speedometer-widget:active {
   transform: scale(0.96);
   opacity: 0.9;
@@ -133,6 +125,38 @@ html, body {
 
 .stationary-prompt-overlay[hidden] {
   display: none;
+}
+
+.trip-complete-card {
+  text-align: center;
+}
+
+.trip-complete-check {
+  width: 68px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  background: #84db00;
+  color: #ffffff;
+}
+
+.trip-complete-check svg {
+  width: 40px;
+  height: 40px;
+}
+
+.trip-complete-close {
+  width: 100%;
+  margin-top: 18px;
+  padding: 13px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary-navy);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 700;
 }
 
 .stationary-prompt-card {
@@ -499,27 +523,6 @@ html, body {
   color: #CBD5E1;
   margin-top: 1px;
   line-height: 1.3;
-}
-
-.btn-offline-retry {
-  background: #FF4B4B;
-  color: #ffffff;
-  border: none;
-  padding: 7px 12px;
-  border-radius: var(--radius-full);
-  font-size: 11px;
-  font-weight: 700;
-  font-family: var(--font-heading);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.2s ease, transform 0.2s ease;
-  flex-shrink: 0;
-}
-
-@media (hover: hover) {
-  .btn-offline-retry:hover {
-    background: #E53935;
-  }
 }
 
 /* Botões Flutuantes Laterais Alinhados ao Meio da Tela */

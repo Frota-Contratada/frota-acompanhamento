@@ -8,6 +8,15 @@
 import { formatDistance, formatDuration, formatETA } from '../../../shared/utils/geoUtils.js';
 import { addFastClickListener } from '../../../shared/utils/domUtils.js';
 
+function escapeHtml(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
 export class RideSheet {
   constructor(elementId, options = {}) {
     this.container = document.getElementById(elementId);
@@ -138,7 +147,7 @@ export class RideSheet {
             </div>
             <div class="timeline-point-details">
               <span class="timeline-point-label">Origem</span>
-              <span class="timeline-point-name">${this.originName}</span>
+              <span class="timeline-point-name">${escapeHtml(this.originName)}</span>
             </div>
           </div>
 
@@ -154,7 +163,7 @@ export class RideSheet {
             </div>
             <div class="timeline-point-details">
               <span class="timeline-point-label">Destino</span>
-              <span class="timeline-point-name">${this.destName}</span>
+              <span class="timeline-point-name">${escapeHtml(this.destName)}</span>
             </div>
           </div>
         </div>
@@ -210,7 +219,7 @@ export class RideSheet {
     if (statusPill) {
       addFastClickListener(statusPill, () => {
         const nextStatus = this.status === 'waiting' ? 'transit' : 'waiting';
-        this.setStatus(nextStatus);
+        if (!this.options.controlledStatus) this.setStatus(nextStatus);
         if (this.options.onStatusChange) {
           this.options.onStatusChange(nextStatus);
         }

@@ -1,13 +1,13 @@
 import { APP_ROLES } from '../shared/domain/appRoles.js';
 
 const APP_MOUNTERS = Object.freeze({
-  [APP_ROLES.DRIVER]: async () => {
+  [APP_ROLES.DRIVER]: async (options) => {
     const { mountDriverApp } = await import('../features/driver/driverApp.js');
-    mountDriverApp();
+    await mountDriverApp(options);
   },
-  [APP_ROLES.PASSENGER]: async () => {
+  [APP_ROLES.PASSENGER]: async (options) => {
     const { mountPassengerApp } = await import('../features/passenger/passengerApp.js');
-    mountPassengerApp();
+    await mountPassengerApp(options);
   }
 });
 
@@ -16,12 +16,12 @@ const APP_MOUNTERS = Object.freeze({
  * O carregamento por perfil impede que recursos de navegação do motorista
  * sejam acoplados à futura visualização do passageiro.
  */
-export async function bootstrapApp(role) {
+export async function bootstrapApp(role, options = {}) {
   const mountApp = APP_MOUNTERS[role];
 
   if (!mountApp) {
     throw new Error(`O perfil "${role}" ainda não possui uma aplicação implementada.`);
   }
 
-  await mountApp();
+  await mountApp(options);
 }

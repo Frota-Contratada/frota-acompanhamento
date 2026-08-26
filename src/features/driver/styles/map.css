@@ -1,4 +1,4 @@
-/* Estilos do Mapa Leaflet com Visão Angulada 3D Waze e Rotação Suavizada */
+/* Mapa vetorial OpenFreeMap renderizado pelo MapLibre. */
 
 #map-viewport {
   width: 100vw;
@@ -9,20 +9,13 @@
   overflow: hidden;
   z-index: 1;
   background-color: #EBF0F5;
-  perspective: 1200px;
-  perspective-origin: 50% 50%;
 }
 
 #map-rotator {
-  width: 200vw;
-  height: 200vh;
+  width: 100%;
+  height: 100%;
   position: absolute;
-  top: -50vh;
-  left: -50vw;
-  transform-origin: 50% 50%;
-  transition: transform 0.55s cubic-bezier(0.12, 0.9, 0.24, 1);
-  will-change: transform;
-  transform-style: preserve-3d;
+  inset: 0;
 }
 
 #map-container {
@@ -33,21 +26,31 @@
   left: 0;
 }
 
-.leaflet-container {
+.maplibregl-map {
   width: 100%;
   height: 100%;
   background-color: #EBF0F5 !important;
   font-family: var(--font-body) !important;
 }
 
-.leaflet-control-attribution {
-  display: none !important;
+.driver-app .maplibregl-ctrl-bottom-right {
+  right: 4px;
+  bottom: calc(106px + env(safe-area-inset-bottom, 0px));
+  z-index: 4;
+}
+
+.driver-app .maplibregl-ctrl-attrib {
+  border-radius: 6px;
+  font-size: 9px;
 }
 
 .traffic-route-legend {
+  position: absolute;
+  left: 10px;
+  bottom: calc(126px + env(safe-area-inset-bottom, 0px));
+  z-index: 5;
   display: flex;
   gap: 9px;
-  margin: 0 0 126px 10px !important;
   padding: 7px 10px;
   border: 1px solid rgba(255, 255, 255, 0.35);
   border-radius: 999px;
@@ -89,12 +92,10 @@
   font-size: 12px;
 }
 
-.traffic-leaflet-popup .leaflet-popup-content-wrapper {
+.traffic-map-popup .maplibregl-popup-content {
+  padding: 10px 12px;
   border-radius: 10px;
-}
-
-.traffic-leaflet-popup .leaflet-popup-content {
-  margin: 10px 12px;
+  box-shadow: 0 5px 18px rgb(15 23 42 / 22%);
 }
 
 /* Marcadores Gerais */
@@ -102,7 +103,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  pointer-events: auto;
+  pointer-events: none;
+  user-select: none;
 }
 
 /* Marcador de Origem */
@@ -124,6 +126,31 @@
   height: 6px;
   border-radius: 50%;
   background: #ffffff;
+}
+
+.route-stop-pin {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #ffffff;
+  font: 700 12px/1 system-ui, sans-serif;
+  box-shadow: 0 2px 8px rgb(15 23 42 / 28%);
+}
+
+.driver-current-location-dot {
+  width: 20px;
+  height: 20px;
+  margin: 7px;
+  border: 3px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.58);
+  box-shadow:
+    0 0 0 8px rgba(56, 189, 248, 0.16),
+    0 4px 12px rgba(14, 116, 144, 0.28);
 }
 
 /* Marcador de Destino */

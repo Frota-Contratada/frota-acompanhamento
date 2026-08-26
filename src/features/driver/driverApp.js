@@ -1,32 +1,34 @@
 /**
  * Aplicação do motorista.
- * Orquestra mapa em modo de navegação, roteamento TomTom, GPS, instruções,
+ * Orquestra mapa em modo de navegação, rota canônica, posição e instruções,
  * espera do passageiro e controles operacionais da corrida.
  */
 
 import { APP_CONFIG } from './config.js';
 import { renderDriverShell } from './driverShell.js';
-import { fetchTomTomRoute } from '../../shared/services/tomtomService.js';
 import { audioService } from './services/audioService.js';
 import { calculateBearing, calculateDistance, formatDistance } from '../../shared/utils/geoUtils.js';
-import { storageService } from '../../shared/services/storageService.js';
 import { GpsNavigationEngine } from './services/gpsNavigationEngine.js';
 import { MapManager } from './components/mapManager.js';
 import { NavigationBar } from './components/navigationBar.js';
 import { Speedometer } from './components/speedometer.js';
 import { RideSheet } from './components/rideSheet.js';
-import { RouteSetupScreen } from '../../shared/components/routeSetupScreen.js';
 import { addFastClickListener } from '../../shared/utils/domUtils.js';
+import { adaptCanonicalRoute } from '../../shared/integration/tripContract.js';
+import { createDemoVehiclePosition, DEMO_CANONICAL_ROUTE } from '../../shared/simulation/demoTrip.js';
 import './styles/main.css';
 import './styles/map.css';
 import './styles/navigation.css';
 import './styles/rideSheet.css';
-import '../../shared/styles/setupScreen.css';
 
 // Estado global da aplicação
 const appState = {
   currentDestination: null,
+  navigationDestination: null,
   currentVehiclePos: null,
+  routeStart: null,
+  routeStartReached: false,
+  approachVisualShown: false,
   activeRouteData: null,
   isRecalculating: false,
   rerouteCount: 0,
@@ -40,7 +42,13 @@ const appState = {
   isWaitingForPassenger: false,
   waitingStartedAt: null,
   waitingAnchor: null,
-  lastWaitingMinute: -1
+  lastWaitingMinute: -1,
+  routeVersion: 0,
+  latestVehicleTimestamp: 0,
+  tripStatus: 'in_progress',
+  pendingCommands: new Map(),
+  arrivalPromptShown: false,
+  arrivalPromptDismissedUntil: 0
 };
 
 const simulatorState = {
@@ -58,12 +66,15 @@ let mapManager;
 let navigationBar;
 let speedometer;
 let rideSheet;
-let setupScreen;
 let gpsEngine;
+let tripBridge;
+let isEmbedded = false;
 
-function showOfflineAlert(message) {
+function showOfflineAlert(message, title = 'Dispositivo offline') {
   const banner = document.getElementById('offline-alert-banner');
   const text = document.getElementById('offline-banner-text');
+  const titleElement = banner?.querySelector('.offline-banner-title');
+  if (titleElement) titleElement.textContent = title;
   if (text && message) {
     text.textContent = message;
   }
@@ -106,10 +117,8 @@ function resetStationaryTracking(resetDismissal = true) {
 }
 
 function isStationaryPromptEligible(state) {
-  const setupIsHidden = document.getElementById('setup-page-container')?.classList.contains('hidden');
   return Boolean(
     appState.activeRouteData
-    && setupIsHidden
     && !state.isOffRoute
     && state.remainingDistanceMeters > 40
   );
@@ -147,6 +156,16 @@ function enterPassengerWaitingMode(announce = true) {
   if (announce) audioService.speak('Corrida pausada. Aguardando o passageiro.', true);
 }
 
+function requestPassengerWaitingMode() {
+  if (!isEmbedded) {
+    enterPassengerWaitingMode(true);
+    return;
+  }
+  hideStationaryPrompt();
+  const eventId = tripBridge?.send('waiting.confirmed', {});
+  if (eventId) appState.pendingCommands.set(eventId, 'waiting.confirmed');
+}
+
 function updateWaitingModeVisual(waitingMinutes) {
   const card = document.getElementById('waiting-mode-card');
   const duration = document.getElementById('waiting-mode-duration');
@@ -180,6 +199,16 @@ function exitPassengerWaitingMode(announce = true) {
   if (announce && wasWaiting) audioService.speak('Corrida retomada.', true);
 }
 
+function requestPassengerWaitingResume() {
+  if (!isEmbedded) {
+    exitPassengerWaitingMode(true);
+    return;
+  }
+  if ([...appState.pendingCommands.values()].includes('waiting.resumeRequested')) return;
+  const eventId = tripBridge?.send('waiting.resumeRequested', {});
+  if (eventId) appState.pendingCommands.set(eventId, 'waiting.resumeRequested');
+}
+
 function monitorStationaryVehicle(state) {
   const speedKmH = Number(state.speedKmH) || 0;
   const movementDistanceThreshold = Math.max(
@@ -198,7 +227,7 @@ function monitorStationaryVehicle(state) {
       : 0;
 
     if (speedKmH >= APP_CONFIG.waitingResumeSpeedKmH || movedFromWaitingPoint >= movementDistanceThreshold) {
-      exitPassengerWaitingMode(true);
+      requestPassengerWaitingResume();
       return;
     }
 
@@ -303,7 +332,6 @@ function enableNavigationSimulator() {
   }
 
   if (!simulatorState.enabled) {
-    gpsEngine?.stopGpsTracking();
     simulatorState.enabled = true;
     simulatorState.coordIndex = nearestRouteCoordinateIndex(appState.currentVehiclePos, coordinates);
     simulatorState.position = [...coordinates[simulatorState.coordIndex]];
@@ -353,7 +381,7 @@ function pauseNavigationSimulator() {
     simulatorState.timerId = null;
   }
   simulatorState.isPlaying = false;
-  updateSimulatorUI(simulatorState.enabled ? 'Parado' : 'GPS real');
+  updateSimulatorUI(simulatorState.enabled ? 'Parado' : 'Pronto para simular');
 
   if (simulatorState.enabled && simulatorState.position) {
     gpsEngine.currentSpeedKmH = 0;
@@ -375,30 +403,46 @@ function testPassengerWaitingPrompt() {
   showStationaryPrompt();
 }
 
-function returnToRealGps() {
+function resetNavigationSimulator() {
   pauseNavigationSimulator();
   simulatorState.enabled = false;
   simulatorState.position = null;
   simulatorState.coordIndex = 0;
   if (appState.isWaitingForPassenger) exitPassengerWaitingMode(false);
   resetStationaryTracking(true);
-  updateSimulatorUI('GPS real');
-  gpsEngine?.startGpsTracking();
+  appState.tripStatus = 'in_progress';
+  appState.currentVehiclePos = null;
+  appState.routeStart = null;
+  appState.routeStartReached = false;
+  appState.approachVisualShown = false;
+  mapManager.clearCurrentLocationApproach();
+  appState.arrivalPromptShown = false;
+  appState.arrivalPromptDismissedUntil = 0;
+  appState.routeVersion = 0;
+  appState.latestVehicleTimestamp = 0;
+  gpsEngine.currentPosition = null;
+  document.getElementById('trip-complete-overlay')?.setAttribute('hidden', '');
+  applyAuthoritativeRoute(DEMO_CANONICAL_ROUTE, { initial: true });
+  applyVehiclePosition(createDemoVehiclePosition());
+  updateSimulatorUI('Pronto para simular');
 }
 
 function initializeNavigationSimulator() {
   const panel = document.getElementById('navigation-simulator');
-  const queryEnabled = new URLSearchParams(window.location.search).get('simulator') === '1';
-  if (panel) panel.hidden = !(import.meta.env.DEV || queryEnabled);
-  updateSimulatorUI('GPS real');
+  if (panel) panel.hidden = isEmbedded;
+  updateSimulatorUI(isEmbedded ? 'Posição do aplicativo' : 'Pronto para simular');
 }
 
 /**
  * Inicialização dos Componentes
  */
-async function initializeApp() {
+async function initializeApp(options = {}) {
+  tripBridge = options.tripBridge;
+  isEmbedded = Boolean(tripBridge?.isEmbedded());
+  document.documentElement.dataset.runtime = isEmbedded ? 'flutter' : 'standalone';
+
   // 1. Carrega o destino ativo do cache persistente ou padrão
-  const savedDest = storageService.loadActiveDestination() || APP_CONFIG.defaultRoute.destination;
+  const savedDest = APP_CONFIG.defaultRoute.destination;
   appState.currentDestination = savedDest;
 
   const fallbackCenter = [savedDest.lat, savedDest.lng];
@@ -411,8 +455,7 @@ async function initializeApp() {
 
   // 3. Inicializa o Topo Waze
   navigationBar = new NavigationBar('waze-top-bar', {
-    onToggleSound: (btn) => toggleAudio(btn),
-    onOpenSetup: () => openSetupScreen()
+    onToggleSound: (btn) => toggleAudio(btn)
   });
   navigationBar.render();
 
@@ -424,12 +467,12 @@ async function initializeApp() {
 
   // 5. Inicializa o Card Inferior
   rideSheet = new RideSheet('ride-bottom-sheet', {
-    onBackClick: () => openSetupScreen(),
+    controlledStatus: isEmbedded,
     onStatusChange: (status) => {
       if (status === 'waiting') {
-        enterPassengerWaitingMode(false);
+        requestPassengerWaitingMode();
       } else {
-        exitPassengerWaitingMode(false);
+        requestPassengerWaitingResume();
       }
     }
   });
@@ -438,121 +481,217 @@ async function initializeApp() {
     appState.currentDestination.name || 'Destino Selecionado'
   );
 
-  // 6. Inicializa a Tela de Configuração
-  setupScreen = new RouteSetupScreen('setup-page-container', {
-    profile: 'driver',
-    onStartRoute: async (routeConfig) => {
-      appState.currentDestination = routeConfig.destination;
-      storageService.saveActiveDestination(routeConfig.destination);
-      await startNavigationFromGps(routeConfig.destination);
-    }
-  });
-  setupScreen.init();
-  setupScreen.setDestination(appState.currentDestination);
-
-  // 7. Inicializa o Motor de Navegação GPS Real
+  // 6. Inicializa o motor que processa a posição nativa ou simulada.
   gpsEngine = new GpsNavigationEngine({
     onUpdate: (state) => handleGpsUpdate(state),
     onOffRoute: (offRoutePos, distance) => handleOffRouteDetected(offRoutePos, distance),
     onStepChange: (step, dist) => handleStepChange(step, dist),
-    onDestinationReached: () => handleDestinationReached(),
-    onGpsError: (msg) => handleGpsError(msg)
+    onDestinationReached: () => handleDestinationReached()
   });
 
   // Conecta botões e eventos
   setupUIEventListeners();
   initializeNavigationSimulator();
 
-  // 8. Obtém a localização GPS atual e calcula a rota para o destino
-  requestGpsAndCalculateRoute();
+  if (isEmbedded) {
+    configureEmbeddedDriverUi();
+    tripBridge.subscribe(handleFlutterTripMessage);
+    showOfflineAlert('Sincronizando rota e posição do veículo…', 'Carregando corrida');
+  } else {
+    applyAuthoritativeRoute(DEMO_CANONICAL_ROUTE, { initial: true });
+    applyVehiclePosition(createDemoVehiclePosition());
+    hideOfflineAlert();
+  }
 }
 
-/**
- * Solicita a posição GPS atual do usuário e calcula a rota até o destino ativo
- */
-function requestGpsAndCalculateRoute() {
-  if (!('geolocation' in navigator)) {
-    showOfflineAlert('Seu navegador não possui suporte a GPS.');
-    return;
+function configureEmbeddedDriverUi() {
+  document.getElementById('navigation-simulator')?.setAttribute('hidden', '');
+}
+
+function toDestination(waypoint) {
+  return {
+    id: waypoint.id,
+    name: waypoint.label,
+    address: waypoint.label,
+    lat: waypoint.lat,
+    lng: waypoint.lng
+  };
+}
+
+function applyAuthoritativeRoute(canonicalRoute, { initial = false } = {}) {
+  if (canonicalRoute.version <= appState.routeVersion) return false;
+  const routeData = adaptCanonicalRoute(canonicalRoute);
+  appState.routeVersion = canonicalRoute.version;
+  appState.activeRouteData = routeData;
+  appState.currentDestination = toDestination(canonicalRoute.destination);
+  appState.navigationDestination = { ...canonicalRoute.destination };
+  appState.arrivalPromptShown = false;
+  appState.arrivalPromptDismissedUntil = 0;
+
+  const origin = [canonicalRoute.origin.lat, canonicalRoute.origin.lng];
+  const destination = [canonicalRoute.destination.lat, canonicalRoute.destination.lng];
+  appState.routeStart = origin;
+  if (initial) {
+    appState.routeStartReached = false;
+    appState.approachVisualShown = false;
+    mapManager.clearCurrentLocationApproach();
+  }
+  mapManager.drawRoute(routeData.coordinates, routeData.trafficSections);
+  mapManager.setOriginMarker(origin);
+  mapManager.setDestinationMarker(destination);
+  mapManager.setStopMarkers(canonicalRoute.stops);
+  gpsEngine.setRoute(routeData);
+  rideSheet.setRouteInfo(canonicalRoute.origin.label, canonicalRoute.destination.label);
+  rideSheet.updateMetrics(routeData.distanceMeters, routeData.durationSeconds);
+  if (routeData.steps.length) {
+    navigationBar.update(routeData.steps[0], routeData.steps[0].distanceMeters, routeData.steps[1]);
+  }
+  if (initial && !appState.currentVehiclePos) {
+    const nextCoordinate = routeData.coordinates[1] || destination;
+    const initialBearing = calculateBearing(
+      origin[0], origin[1], nextCoordinate[0], nextCoordinate[1]
+    );
+    // Mantém a direção inicial da rota enquanto o veículo ainda está parado.
+    // Sem isso, o primeiro heartbeat de baixa velocidade restaurava o norte (0°).
+    gpsEngine.currentBearing = initialBearing;
+    mapManager.updateVehiclePosition(origin, initialBearing, 0);
+    mapManager.setView(origin, 16);
+  }
+  appState.activeRouteData.stops = canonicalRoute.stops;
+  return true;
+}
+
+function applyVehiclePosition(position) {
+  const timestamp = Date.parse(position.timestamp);
+  if (!Number.isFinite(timestamp) || timestamp <= appState.latestVehicleTimestamp) return;
+  const previousTimestamp = appState.latestVehicleTimestamp;
+  appState.latestVehicleTimestamp = timestamp;
+  const coordinates = [position.lat, position.lng];
+  const speedKmH = Math.max(0, Number(position.speed) || 0) * 3.6;
+  const suppliedHeading = Number(position.heading);
+  const stableHeading = speedKmH >= 8 && Number.isFinite(suppliedHeading)
+    ? suppliedHeading
+    : (Number(gpsEngine.currentBearing) || 0);
+  appState.userCurrentGps = coordinates;
+
+  if (appState.routeStart && !appState.routeStartReached) {
+    const distanceToStart = calculateDistance(
+      coordinates[0], coordinates[1], appState.routeStart[0], appState.routeStart[1]
+    );
+    const accuracy = Math.max(0, Number(position.accuracy) || 0);
+    const arrivalThreshold = Math.max(
+      APP_CONFIG.routeStartArrivalThresholdMeters,
+      Math.min(accuracy * 1.5, 100)
+    );
+
+    if (distanceToStart > arrivalThreshold) {
+      mapManager.showCurrentLocationApproach(coordinates, appState.routeStart, {
+        fitBounds: !appState.approachVisualShown
+      });
+      appState.approachVisualShown = true;
+      return;
+    }
+
+    appState.routeStartReached = true;
+    appState.approachVisualShown = false;
+    mapManager.clearCurrentLocationApproach();
+    mapManager.setFollowVehicle(true);
+    updateRecenterButton(true);
   }
 
-  navigator.geolocation.getCurrentPosition(
-    async (pos) => {
-      const gpsCoords = [pos.coords.latitude, pos.coords.longitude];
-      appState.currentVehiclePos = gpsCoords;
-      appState.userCurrentGps = gpsCoords;
-
-      mapManager.map.setView(gpsCoords, 19.3);
-      mapManager.updateVehiclePosition(gpsCoords, 0);
-
-      await calculateAndApplyRoute(gpsCoords, appState.currentDestination, true);
-
-      // Inicia rastreamento contínuo
-      gpsEngine.startGpsTracking();
-    },
-    (err) => {
-      console.warn('Erro ao obter GPS inicial:', err);
-      showOfflineAlert('GPS desativado ou permissão negada. Ative o GPS para traçar a rota.');
-    },
-    { enableHighAccuracy: true, timeout: 10000 }
+  if (!appState.currentVehiclePos) {
+    appState.currentVehiclePos = coordinates;
+    mapManager.updateVehiclePosition(coordinates, stableHeading);
+    mapManager.setView(coordinates, 19.3);
+  }
+  if (previousTimestamp) {
+    gpsEngine.gpsUpdateIntervalMs = Math.min(2500, Math.max(400, timestamp - previousTimestamp));
+  }
+  gpsEngine.currentPosition = coordinates;
+  gpsEngine.currentBearing = stableHeading;
+  gpsEngine.currentSpeedKmH = speedKmH;
+  gpsEngine.processGpsUpdate(
+    coordinates,
+    stableHeading,
+    speedKmH,
+    Math.max(0, Number(position.accuracy) || 0)
   );
 }
 
-/**
- * Inicia navegação recalculando a rota a partir do GPS atual para um novo destino
- */
-async function startNavigationFromGps(destination) {
-  if (appState.isWaitingForPassenger) exitPassengerWaitingMode(false);
-  resetStationaryTracking(true);
-  appState.currentDestination = destination;
-  rideSheet.setRouteInfo('Minha Localização Atual (GPS)', destination.name || destination.address);
-
-  if (appState.currentVehiclePos) {
-    await calculateAndApplyRoute(appState.currentVehiclePos, destination, true);
-    gpsEngine.startGpsTracking();
+function applyWaitingState(waiting, announce = false) {
+  if (waiting.active) {
+    const wasWaiting = appState.isWaitingForPassenger;
+    enterPassengerWaitingMode(announce && !wasWaiting);
+    appState.waitingStartedAt = waiting.startedAt ? Date.parse(waiting.startedAt) : Date.now();
+    const minutes = Math.max(0, Math.floor((Date.now() - appState.waitingStartedAt) / 60000));
+    appState.lastWaitingMinute = minutes;
+    rideSheet?.setStatus('waiting', minutes);
+    updateWaitingModeVisual(minutes);
   } else {
-    requestGpsAndCalculateRoute();
+    exitPassengerWaitingMode(announce);
   }
 }
 
-/**
- * Calcula a rota TomTom com trânsito ao vivo entre o GPS atual e o destino
- */
-async function calculateAndApplyRoute(startGps, destination, isInitial = false) {
-  const destCoords = [destination.lat, destination.lng];
-
-  try {
-    const routeData = await fetchTomTomRoute(startGps, destCoords);
-
-    if (!routeData || routeData.success === false) {
-      showOfflineAlert(routeData?.message || 'Sem conexão para carregar a rota.');
-      return null;
-    }
-
+function applyTripStatus(status) {
+  appState.tripStatus = status;
+  if (status === 'finished' || status === 'completed') {
+    hideStationaryPrompt();
+    exitPassengerWaitingMode(false);
+    rideSheet?.setStatus('paused');
     hideOfflineAlert();
-    appState.activeRouteData = routeData;
+    document.getElementById('trip-finish-prompt')?.setAttribute('hidden', '');
+    const completion = document.getElementById('trip-complete-overlay');
+    if (completion) completion.hidden = false;
+  }
+}
 
-    mapManager.drawRoute(routeData.coordinates, routeData.trafficSections);
-
-    if (isInitial) {
-      mapManager.setOriginMarker(startGps);
-      mapManager.setDestinationMarker(destCoords);
-      mapManager.updateVehiclePosition(startGps, 0);
-      mapManager.map.setView(startGps, 19.3);
+function handleFlutterTripMessage(message) {
+  const { type, payload } = message;
+  if (type === 'trip.bootstrap') {
+    if (payload.role !== 'driver') {
+      showOfflineAlert('Os dados recebidos não pertencem à visão do motorista.');
+      return;
     }
-
-    gpsEngine.setRoute(routeData);
-    rideSheet.updateMetrics(routeData.distanceMeters, routeData.durationSeconds);
-
-    if (routeData.steps && routeData.steps.length > 0) {
-      navigationBar.update(routeData.steps[0], routeData.steps[0].distanceMeters, routeData.steps[1]);
+    applyAuthoritativeRoute(payload.route, { initial: true });
+    if (payload.vehiclePosition) applyVehiclePosition(payload.vehiclePosition);
+    applyWaitingState(payload.waiting, false);
+    applyTripStatus(payload.tripStatus);
+    if (payload.tripStatus !== 'finished' && payload.tripStatus !== 'completed') hideOfflineAlert();
+  } else if (type === 'vehicle.location') {
+    applyVehiclePosition(payload);
+  } else if (type === 'route.replaced') {
+    if (applyAuthoritativeRoute(payload)) {
+      appState.isRecalculating = false;
+      gpsEngine?.finishRerouting();
+      document.getElementById('reroute-banner')?.classList.remove('show');
+      hideOfflineAlert();
     }
-
-    return routeData;
-  } catch (error) {
-    console.error('Erro ao calcular rota TomTom:', error);
-    showOfflineAlert('Erro de rede ao calcular trajeto. Verifique a internet.');
-    return null;
+  } else if (type === 'waiting.changed') {
+    applyWaitingState(payload, true);
+  } else if (type === 'trip.statusChanged') {
+    applyTripStatus(payload.tripStatus);
+  } else if (type === 'connection.changed') {
+    if (payload.connected) hideOfflineAlert();
+    else showOfflineAlert('A posição será sincronizada quando a internet voltar.', 'Sem conexão');
+  } else if (type === 'command.succeeded') {
+    appState.pendingCommands.delete(payload.commandEventId);
+    if (payload.commandType === 'route.rerouteRequested') {
+      appState.isRecalculating = false;
+      gpsEngine?.finishRerouting();
+      document.getElementById('reroute-banner')?.classList.remove('show');
+    }
+  } else if (type === 'command.failed') {
+    appState.pendingCommands.delete(payload.commandEventId);
+    if (payload.commandType === 'route.rerouteRequested') {
+      appState.isRecalculating = false;
+      gpsEngine?.finishRerouting();
+      document.getElementById('reroute-banner')?.classList.remove('show');
+    }
+    if (payload.commandType === 'trip.finishRequested') {
+      const prompt = document.getElementById('trip-finish-prompt');
+      if (prompt) prompt.hidden = false;
+    }
+    showOfflineAlert(payload.reason || 'Não foi possível executar a ação.', 'Falha ao atualizar a corrida');
   }
 }
 
@@ -602,7 +741,7 @@ function handleStepChange(step, distance) {
 }
 
 /**
- * Detecta desvio confirmado do traçado e solicita uma nova rota à TomTom.
+ * Detecta desvio confirmado e delega o recálculo ao mobile/backend.
  */
 async function handleOffRouteDetected(currentVehiclePos, deviationDistance) {
   if (appState.isWaitingForPassenger) {
@@ -615,74 +754,74 @@ async function handleOffRouteDetected(currentVehiclePos, deviationDistance) {
   }
   appState.isRecalculating = true;
   appState.rerouteCount++;
-  let recalculationSucceeded = false;
-
-  console.log(`⚠️ Desvio detectado (${Math.round(deviationDistance)}m da rota). Recalculando trajeto...`);
 
   const banner = document.getElementById('reroute-banner');
-  if (banner) {
-    banner.classList.add('show');
-  }
 
-  audioService.playRerouteChime();
-  audioService.speak('Você saiu da rota. Recalculando...', true);
-
-  try {
-    const destCoords = [appState.currentDestination.lat, appState.currentDestination.lng];
-    const newRoute = await fetchTomTomRoute(currentVehiclePos, destCoords);
-
-    if (newRoute && newRoute.success !== false) {
-      recalculationSucceeded = true;
-      appState.activeRouteData = newRoute;
-
-      mapManager.drawRoute(newRoute.coordinates, newRoute.trafficSections);
-      gpsEngine.setRoute(newRoute);
-
-      if (newRoute.steps.length > 0) {
-        navigationBar.update(newRoute.steps[0], newRoute.steps[0].distanceMeters, newRoute.steps[1]);
-        audioService.speak(newRoute.steps[0].instruction);
+  if (isEmbedded) {
+    console.log(`⚠️ Desvio detectado (${Math.round(deviationDistance)}m da rota). Solicitando novo trajeto...`);
+    banner?.classList.add('show');
+    audioService.playRerouteChime();
+    audioService.speak('Você saiu da rota. Recalculando...', true);
+    const eventId = tripBridge?.send('route.rerouteRequested', {
+      deviationDistanceMeters: Math.max(0, Math.round(deviationDistance)),
+      position: {
+        lat: currentVehiclePos[0],
+        lng: currentVehiclePos[1],
+        accuracy: Number(appState.lastGpsState?.accuracyMeters) || 0,
+        speed: (Number(appState.lastGpsState?.speedKmH) || 0) / 3.6,
+        heading: Number(appState.lastGpsState?.bearing) || 0,
+        timestamp: new Date().toISOString()
       }
-    } else {
-      showOfflineAlert(newRoute?.message || 'Não foi possível recalcular a rota agora. Uma nova tentativa será feita.');
-    }
-  } catch (err) {
-    console.error('Falha ao recalcular rota:', err);
-    showOfflineAlert('Falha ao recalcular a rota. Uma nova tentativa será feita automaticamente.');
-  } finally {
-    // Em sucesso, setRoute já libera o motor; em falha, isto garante novas tentativas.
-    if (!recalculationSucceeded) gpsEngine?.finishRerouting();
-    setTimeout(() => {
-      if (banner) banner.classList.remove('show');
+    });
+    if (eventId) appState.pendingCommands.set(eventId, 'route.rerouteRequested');
+    else {
       appState.isRecalculating = false;
-    }, 1200);
+      gpsEngine?.finishRerouting();
+      banner?.classList.remove('show');
+      showOfflineAlert('Não foi possível solicitar o recálculo ao aplicativo.');
+    }
+    return;
   }
-}
 
-/**
- * Reposiciona o veículo manualmente
- */
-function handleVehicleReposition(newPos) {
-  appState.currentVehiclePos = newPos;
-  if (gpsEngine) {
-    gpsEngine.processGpsUpdate(newPos, gpsEngine.currentBearing, gpsEngine.currentSpeedKmH);
-  }
-}
-
-/**
- * Trata erros de GPS
- */
-function handleGpsError(msg) {
-  showOfflineAlert(msg || 'Sinal de GPS indisponível.');
+  // O simulador usa uma rota fixa e não possui provedor de recálculo.
+  gpsEngine?.finishRerouting();
+  appState.isRecalculating = false;
+  banner?.classList.remove('show');
 }
 
 /**
  * Chegada ao Destino
  */
 function handleDestinationReached() {
+  if (
+    appState.arrivalPromptShown
+    || Date.now() < appState.arrivalPromptDismissedUntil
+    || appState.tripStatus === 'finished'
+    || appState.tripStatus === 'completed'
+  ) return;
+  appState.arrivalPromptShown = true;
   hideStationaryPrompt();
   resetStationaryTracking(true);
   audioService.playArrivalFanfare();
   audioService.speak('Você chegou ao seu destino.', true);
+  const prompt = document.getElementById('trip-finish-prompt');
+  if (prompt) prompt.hidden = false;
+}
+
+function requestTripFinish() {
+  const prompt = document.getElementById('trip-finish-prompt');
+  if (prompt) prompt.hidden = true;
+  if (!isEmbedded) {
+    applyTripStatus('finished');
+    return;
+  }
+  const eventId = tripBridge?.send('trip.finishRequested', {});
+  if (eventId) {
+    appState.pendingCommands.set(eventId, 'trip.finishRequested');
+  } else {
+    if (prompt) prompt.hidden = false;
+    showOfflineAlert('Não foi possível solicitar o encerramento.', 'Falha ao finalizar');
+  }
 }
 
 /**
@@ -694,6 +833,42 @@ function toggleAudio(button) {
   if (button) {
     button.classList.toggle('active', appState.isSoundActive);
   }
+}
+
+function createExternalNavigationPayload(provider) {
+  const destination = appState.navigationDestination;
+  if (!destination) return null;
+
+  return {
+    provider,
+    destination: {
+      id: String(destination.id),
+      sequence: Number.isInteger(destination.sequence) ? destination.sequence : 0,
+      kind: 'destination',
+      label: destination.label || appState.currentDestination?.name || 'Destino',
+      lat: Number(destination.lat),
+      lng: Number(destination.lng)
+    },
+    ...(appState.userCurrentGps
+      ? { origin: { lat: appState.userCurrentGps[0], lng: appState.userCurrentGps[1] } }
+      : {})
+  };
+}
+
+function openExternalNavigation(provider) {
+  const payload = createExternalNavigationPayload(provider);
+  if (!payload) return;
+
+  if (isEmbedded) {
+    tripBridge?.send('external.navigationRequested', payload);
+    return;
+  }
+
+  const destination = `${payload.destination.lat},${payload.destination.lng}`;
+  const url = provider === 'waze'
+    ? `https://waze.com/ul?ll=${encodeURIComponent(destination)}&navigate=yes`
+    : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving${payload.origin ? `&origin=${encodeURIComponent(`${payload.origin.lat},${payload.origin.lng}`)}` : ''}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 /**
@@ -712,58 +887,17 @@ function updateRecenterButton(isFollowing) {
 }
 
 /**
- * Abre a rota no Waze a partir da coordenada do destino (100% Gratuito)
- */
-function openInWaze() {
-  if (!appState.currentDestination) return;
-
-  const destPos = [
-    appState.currentDestination.lat,
-    appState.currentDestination.lng
-  ];
-
-  const wazeUrl = `https://waze.com/ul?ll=${destPos[0]},${destPos[1]}&navigate=yes`;
-  window.open(wazeUrl, '_blank');
-}
-
-/**
- * Abre a rota no Google Maps a partir do GPS atual até o destino (100% Gratuito)
- */
-function openInGoogleMaps() {
-  if (!appState.currentDestination) return;
-
-  const curPos = appState.currentVehiclePos || [
-    appState.currentDestination.lat,
-    appState.currentDestination.lng
-  ];
-  const destPos = [
-    appState.currentDestination.lat,
-    appState.currentDestination.lng
-  ];
-
-  const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${curPos[0]},${curPos[1]}&destination=${destPos[0]},${destPos[1]}&travelmode=driving`;
-  window.open(googleMapsUrl, '_blank');
-}
-
-function openSetupScreen() {
-  hideStationaryPrompt();
-  resetStationaryTracking(true);
-  setupScreen.setDestination(appState.currentDestination);
-  setupScreen.show();
-}
-
-/**
  * Configuração dos Eventos da Interface
  */
 function setupUIEventListeners() {
   addFastClickListener(document.getElementById('btn-resume-waiting'), () => {
-    exitPassengerWaitingMode(true);
+    requestPassengerWaitingResume();
   });
 
   addFastClickListener(document.getElementById('btn-simulator-play'), playNavigationSimulator);
   addFastClickListener(document.getElementById('btn-simulator-pause'), pauseNavigationSimulator);
   addFastClickListener(document.getElementById('btn-simulator-waiting'), testPassengerWaitingPrompt);
-  addFastClickListener(document.getElementById('btn-simulator-gps'), returnToRealGps);
+  addFastClickListener(document.getElementById('btn-simulator-gps'), resetNavigationSimulator);
 
   addFastClickListener(document.getElementById('btn-stationary-no'), () => {
     hideStationaryPrompt();
@@ -772,63 +906,58 @@ function setupUIEventListeners() {
   });
 
   addFastClickListener(document.getElementById('btn-stationary-yes'), () => {
-    enterPassengerWaitingMode(true);
+    requestPassengerWaitingMode();
   });
 
-  addFastClickListener(document.getElementById('btn-open-setup'), () => {
-    openSetupScreen();
+  addFastClickListener(document.getElementById('btn-finish-no'), () => {
+    const prompt = document.getElementById('trip-finish-prompt');
+    if (prompt) prompt.hidden = true;
+    appState.arrivalPromptShown = false;
+    appState.arrivalPromptDismissedUntil = Date.now() + 60000;
+  });
+
+  addFastClickListener(document.getElementById('btn-finish-yes'), requestTripFinish);
+  addFastClickListener(document.getElementById('btn-complete-close'), () => {
+    const completion = document.getElementById('trip-complete-overlay');
+    if (completion) completion.hidden = true;
   });
 
   addFastClickListener(document.getElementById('fab-recenter'), () => {
+    if (!appState.routeStartReached && appState.userCurrentGps && appState.routeStart) {
+      mapManager.fitApproachBounds(appState.userCurrentGps, appState.routeStart);
+      return;
+    }
     mapManager.setFollowVehicle(true);
     updateRecenterButton(true);
     if (appState.currentVehiclePos) {
-      mapManager.map.setView(appState.currentVehiclePos, 19.3);
+      mapManager.setView(appState.currentVehiclePos, 19.3, { animate: true });
     }
   });
 
-  // Botão de Abrir Rota no Waze
   addFastClickListener(document.getElementById('btn-waze-nav'), () => {
-    openInWaze();
+    openExternalNavigation('waze');
   });
 
-  // Botão de Abrir Rota no Google Maps
   addFastClickListener(document.getElementById('btn-google-maps-nav'), () => {
-    openInGoogleMaps();
+    openExternalNavigation('google_maps');
   });
 
-  // Botão de Tentar Novamente no Banner Offline / GPS
-  addFastClickListener(document.getElementById('btn-offline-retry'), async () => {
-    hideOfflineAlert();
-    requestGpsAndCalculateRoute();
-  });
-
-  // Escuta status de conexão do navegador
-  window.addEventListener('offline', () => {
-    showOfflineAlert('Você perdeu a conexão com a internet.');
-  });
-
-  window.addEventListener('online', () => {
-    hideOfflineAlert();
-    if (appState.currentVehiclePos && appState.currentDestination) {
-      calculateAndApplyRoute(appState.currentVehiclePos, appState.currentDestination, false);
-    }
-  });
 }
 
-export function mountDriverApp() {
+export function mountDriverApp(options = {}) {
   document.documentElement.dataset.appRole = 'driver';
 
-  const startDriverApp = () => {
+  const startDriverApp = async () => {
     renderDriverShell(document.getElementById('app'));
     document.title = 'Navegação do Motorista - Sistema de Frotas';
-    initializeApp();
+    await initializeApp(options);
   };
 
   if (document.readyState === 'loading') {
-    window.addEventListener('DOMContentLoaded', startDriverApp, { once: true });
-    return;
+    return new Promise((resolve, reject) => {
+      window.addEventListener('DOMContentLoaded', () => startDriverApp().then(resolve, reject), { once: true });
+    });
   }
 
-  startDriverApp();
+  return startDriverApp();
 }

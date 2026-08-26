@@ -1,6 +1,6 @@
 /**
  * Componente do Topo de Navegação Waze / Google Maps
- * Exibe instruções curva a curva usando os ícones oficiais Lucide/Feather em SVG puro (zero falhas de runtime).
+ * Exibe instruções curva a curva usando SVGs locais, sem dependência de ícones.
  */
 
 import { formatWazeDistance } from '../../../shared/utils/geoUtils.js';
@@ -16,7 +16,7 @@ export class NavigationBar {
   }
 
   /**
-   * Retorna os SVGs oficiais da biblioteca Lucide/Feather
+   * Retorna o SVG local correspondente à manobra.
    */
   getManeuverSvg(iconType) {
     switch (iconType) {

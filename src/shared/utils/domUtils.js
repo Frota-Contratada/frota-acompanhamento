@@ -1,18 +1,11 @@
-import L from 'leaflet';
-
 /**
  * Utilitário de Clique Rápido para Dispositivos Móveis e Desktop.
  * Evita o atraso de 300ms do iOS/Android, cancela a simulação de mouse ghost click
- * e impede que o evento de toque seja propagado para o mapa Leaflet de fundo.
+ * e impede que o evento seja propagado para o mapa de fundo.
  */
 export function addFastClickListener(element, handler) {
   if (!element || typeof handler !== 'function') return;
-
-  // Desativa a propagação do Leaflet se o elemento estiver sobre o mapa
-  if (typeof L !== 'undefined' && L.DomEvent) {
-    L.DomEvent.disableClickPropagation(element);
-    L.DomEvent.disableScrollPropagation(element);
-  }
+  disableMapPropagation(element);
 
   let lastTouchTime = 0;
 
@@ -37,11 +30,26 @@ export function addFastClickListener(element, handler) {
 }
 
 /**
- * Desativa a propagação de eventos do Leaflet para um container ou elemento.
+ * Desativa a propagação de eventos do mapa para um container ou elemento.
  * Impede que gestos sobre botões ou cards afetem o mapa de fundo.
  */
-export function disableLeafletPropagation(element) {
+export function disableMapPropagation(element) {
   if (!element) return;
-  L.DomEvent.disableClickPropagation(element);
-  L.DomEvent.disableScrollPropagation(element);
+  [
+    'click',
+    'dblclick',
+    'mousedown',
+    'mouseup',
+    'pointerdown',
+    'pointerup',
+    'touchstart',
+    'touchmove',
+    'touchend',
+    'wheel',
+    'contextmenu'
+  ].forEach((eventName) => {
+    element.addEventListener(eventName, (event) => event.stopPropagation(), {
+      passive: eventName === 'touchmove' || eventName === 'wheel'
+    });
+  });
 }

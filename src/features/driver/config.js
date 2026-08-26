@@ -1,14 +1,10 @@
 import {
   DEFAULT_ROUTE,
-  PRESET_ROUTES,
-  THEME_COLORS,
-  TOMTOM_CONFIG
+  THEME_COLORS
 } from '../../shared/config/routeConfig.js';
 
 export const APP_CONFIG = Object.freeze({
   defaultRoute: DEFAULT_ROUTE,
-  presetRoutes: PRESET_ROUTES,
-
   deviationThresholdMeters: 45,
   rerouteConfirmationReadings: 2,
   rerouteRetryCooldownMs: 5000,
@@ -16,7 +12,7 @@ export const APP_CONFIG = Object.freeze({
   stationarySpeedThresholdKmH: 3,
   waitingResumeSpeedKmH: 5,
   defaultSpeedKmH: 50,
+  routeStartArrivalThresholdMeters: 60,
 
-  colors: THEME_COLORS,
-  tomtom: TOMTOM_CONFIG
+  colors: THEME_COLORS
 });

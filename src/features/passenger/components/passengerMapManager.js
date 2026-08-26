@@ -1,58 +1,146 @@
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { THEME_COLORS } from '../../../shared/config/routeConfig.js';
-import { disableLeafletPropagation } from '../../../shared/utils/domUtils.js';
+import { disableMapPropagation } from '../../../shared/utils/domUtils.js';
+import {
+  OPEN_FREE_MAP_STYLE,
+  boundsFromCoordinates,
+  createHtmlElement,
+  emptyLineFeature,
+  featureCollection,
+  lineFeature,
+  maplibregl,
+  setSourceData,
+  toLngLat
+} from '../../../shared/map/openFreeMap.js';
+
+const MAP_IDS = Object.freeze({
+  routeSource: 'passenger-route-source',
+  routeOutline: 'passenger-route-outline',
+  routeLine: 'passenger-route-line',
+  trafficSource: 'passenger-traffic-source',
+  trafficLine: 'passenger-traffic-line'
+});
 
 export class PassengerMapManager {
   constructor(containerId, options = {}) {
     this.containerId = containerId;
     this.options = options;
     this.map = null;
+    this.mapLoaded = false;
     this.routeCoordinates = [];
-    this.routeLayers = [];
-    this.trafficLayers = [];
+    this.trafficSections = [];
     this.vehicleMarker = null;
     this.originMarker = null;
     this.destinationMarker = null;
+    this.stopMarkers = [];
     this.vehicleAnimationFrame = null;
+    this.trafficPopup = null;
+    this.trafficEventsBound = false;
     this.isProgrammaticMove = false;
     this.isOverview = true;
   }
 
   init(initialCenter, initialZoom = 13) {
-    this.map = L.map(this.containerId, {
-      center: initialCenter,
+    this.map = new maplibregl.Map({
+      container: this.containerId,
+      style: OPEN_FREE_MAP_STYLE,
+      center: toLngLat(initialCenter),
       zoom: initialZoom,
-      zoomControl: false,
-      attributionControl: false,
-      zoomSnap: 0.25,
+      pitch: 0,
+      bearing: 0,
+      attributionControl: true,
       maxZoom: 20,
-      dragging: true,
-      touchZoom: true,
-      scrollWheelZoom: true
+      cooperativeGestures: false
     });
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 20,
-      maxNativeZoom: 18,
-      subdomains: 'abcd'
-    }).addTo(this.map);
+    const initializeStyleLayers = () => {
+      if (this.mapLoaded || !this.map.getStyle()?.layers?.length) return;
+      this.mapLoaded = true;
+      document.getElementById(this.containerId)?.setAttribute('data-map-ready', 'true');
+      this.ensureMapLayers();
+      this.renderRoute();
+      this.map.resize();
+    };
+    this.map.on('styledata', initializeStyleLayers);
+    this.map.on('load', initializeStyleLayers);
 
-    ['dragstart', 'zoomstart'].forEach((eventName) => {
-      this.map.on(eventName, () => {
-        if (this.isProgrammaticMove) return;
+    ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach((eventName) => {
+      this.map.on(eventName, (event) => {
+        if (this.isProgrammaticMove || !event.originalEvent) return;
         this.setOverviewState(false);
       });
     });
 
-    const setupContainer = document.getElementById('setup-page-container');
     const statusCard = document.querySelector('.passenger-status-card');
     const rideCard = document.getElementById('passenger-ride-card');
     const recenterButton = document.getElementById('passenger-recenter');
-    [setupContainer, statusCard, rideCard, recenterButton].forEach(disableLeafletPropagation);
-
-    window.setTimeout(() => this.map.invalidateSize(), 0);
+    [statusCard, rideCard, recenterButton].forEach(disableMapPropagation);
+    window.setTimeout(() => this.map.resize(), 0);
     return this;
+  }
+
+  ensureMapLayers() {
+    if (!this.mapLoaded) return;
+    if (!this.map.getSource(MAP_IDS.routeSource)) {
+      this.map.addSource(MAP_IDS.routeSource, { type: 'geojson', data: emptyLineFeature() });
+    }
+    if (!this.map.getLayer(MAP_IDS.routeOutline)) {
+      this.map.addLayer({
+        id: MAP_IDS.routeOutline,
+        type: 'line',
+        source: MAP_IDS.routeSource,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#FFFFFF', 'line-width': 12, 'line-opacity': 0.95 }
+      });
+    }
+    if (!this.map.getLayer(MAP_IDS.routeLine)) {
+      this.map.addLayer({
+        id: MAP_IDS.routeLine,
+        type: 'line',
+        source: MAP_IDS.routeSource,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': THEME_COLORS.accentBlue, 'line-width': 7, 'line-opacity': 1 }
+      });
+    }
+    if (!this.map.getSource(MAP_IDS.trafficSource)) {
+      this.map.addSource(MAP_IDS.trafficSource, { type: 'geojson', data: featureCollection() });
+    }
+    if (!this.map.getLayer(MAP_IDS.trafficLine)) {
+      this.map.addLayer({
+        id: MAP_IDS.trafficLine,
+        type: 'line',
+        source: MAP_IDS.trafficSource,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 8,
+          'line-opacity': 1
+        }
+      });
+    }
+
+    if (!this.trafficEventsBound) {
+      this.trafficEventsBound = true;
+      this.map.on('mouseenter', MAP_IDS.trafficLine, () => {
+        this.map.getCanvas().style.cursor = 'pointer';
+      });
+      this.map.on('mouseleave', MAP_IDS.trafficLine, () => {
+        this.map.getCanvas().style.cursor = '';
+      });
+      this.map.on('click', MAP_IDS.trafficLine, (event) => {
+        const properties = event.features?.[0]?.properties;
+        if (!properties) return;
+        this.trafficPopup?.remove();
+        this.trafficPopup = new maplibregl.Popup({
+          closeButton: false,
+          closeOnClick: true,
+          offset: 8,
+          className: 'passenger-traffic-popup'
+        })
+          .setLngLat(event.lngLat)
+          .setText(properties.delayText || 'Trânsito lento')
+          .addTo(this.map);
+      });
+    }
   }
 
   setOverviewState(isOverview) {
@@ -63,63 +151,41 @@ export class PassengerMapManager {
 
   drawRoute(coordinates, trafficSections = []) {
     if (!Array.isArray(coordinates) || coordinates.length < 2) return;
-    this.clearRoute();
-    this.routeCoordinates = coordinates;
+    this.routeCoordinates = coordinates.map((coordinate) => [...coordinate]);
+    this.trafficSections = (trafficSections || []).filter((section) => {
+      const start = Number(section.startPointIndex);
+      const end = Number(section.endPointIndex);
+      return Number.isInteger(start) && Number.isInteger(end) && end > start;
+    });
+    this.renderRoute();
+  }
 
-    this.routeLayers.push(
-      L.polyline(coordinates, {
-        color: '#FFFFFF',
-        weight: 12,
-        opacity: 0.95,
-        lineCap: 'round',
-        lineJoin: 'round',
-        interactive: false
-      }).addTo(this.map),
-      L.polyline(coordinates, {
-        color: THEME_COLORS.accentBlue,
-        weight: 7,
-        opacity: 1,
-        lineCap: 'round',
-        lineJoin: 'round',
-        interactive: false
-      }).addTo(this.map)
+  renderRoute() {
+    if (!this.mapLoaded) return;
+    this.ensureMapLayers();
+    setSourceData(
+      this.map,
+      MAP_IDS.routeSource,
+      this.routeCoordinates.length >= 2 ? lineFeature(this.routeCoordinates) : emptyLineFeature()
     );
-
-    this.drawTrafficSections(trafficSections);
+    const trafficFeatures = this.trafficSections.flatMap((section) => {
+      const start = Math.max(0, Number(section.startPointIndex));
+      const end = Math.min(this.routeCoordinates.length - 1, Number(section.endPointIndex));
+      const segment = this.routeCoordinates.slice(start, end + 1);
+      if (segment.length < 2) return [];
+      const delay = Math.max(0, Number(section.delayInSeconds) || 0);
+      return [lineFeature(segment, {
+        color: this.trafficColor(section),
+        delayText: delay >= 60 ? `${Math.round(delay / 60)} min de atraso` : 'Trânsito lento'
+      })];
+    });
+    setSourceData(this.map, MAP_IDS.trafficSource, featureCollection(trafficFeatures));
   }
 
   clearRoute() {
-    [...this.routeLayers, ...this.trafficLayers].forEach((layer) => this.map?.removeLayer(layer));
-    this.routeLayers = [];
-    this.trafficLayers = [];
-  }
-
-  drawTrafficSections(sections = []) {
-    sections.forEach((section) => {
-      const start = Number(section.startPointIndex);
-      const end = Number(section.endPointIndex);
-      if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start) return;
-
-      const segment = this.routeCoordinates.slice(
-        Math.max(0, start),
-        Math.min(this.routeCoordinates.length - 1, end) + 1
-      );
-      if (segment.length < 2) return;
-
-      const layer = L.polyline(segment, {
-        color: this.trafficColor(section),
-        weight: 8,
-        opacity: 1,
-        lineCap: 'round',
-        lineJoin: 'round',
-        interactive: true
-      }).addTo(this.map);
-
-      const delay = Math.max(0, Number(section.delayInSeconds) || 0);
-      const delayText = delay >= 60 ? `${Math.round(delay / 60)} min de atraso` : 'Trânsito lento';
-      layer.bindTooltip(delayText, { direction: 'top', opacity: 0.95 });
-      this.trafficLayers.push(layer);
-    });
+    this.routeCoordinates = [];
+    this.trafficSections = [];
+    this.renderRoute();
   }
 
   trafficColor(section) {
@@ -132,92 +198,105 @@ export class PassengerMapManager {
     return '#FACC15';
   }
 
+  createMarker(className, html, position, anchor = 'center') {
+    const element = createHtmlElement(className, html);
+    return new maplibregl.Marker({ element, anchor })
+      .setLngLat(toLngLat(position))
+      .addTo(this.map);
+  }
+
   setOriginMarker(position) {
-    if (this.originMarker) this.map.removeLayer(this.originMarker);
-    const icon = L.divIcon({
-      className: 'passenger-pin-wrapper',
-      html: '<span class="passenger-origin-pin"></span>',
-      iconSize: [18, 18],
-      iconAnchor: [9, 9]
-    });
-    this.originMarker = L.marker(position, { icon, interactive: false }).addTo(this.map);
+    this.originMarker?.remove();
+    this.originMarker = this.createMarker(
+      'passenger-pin-wrapper maplibre-passenger-origin',
+      '<span class="passenger-origin-pin"></span>',
+      position
+    );
   }
 
   setDestinationMarker(position) {
-    if (this.destinationMarker) this.map.removeLayer(this.destinationMarker);
-    const icon = L.divIcon({
-      className: 'passenger-pin-wrapper',
-      html: `<span class="passenger-destination-pin">
+    this.destinationMarker?.remove();
+    this.destinationMarker = this.createMarker(
+      'passenger-pin-wrapper maplibre-passenger-destination',
+      `<span class="passenger-destination-pin">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
       </span>`,
-      iconSize: [38, 38],
-      iconAnchor: [19, 34]
-    });
-    this.destinationMarker = L.marker(position, { icon, interactive: false }).addTo(this.map);
+      position,
+      'bottom'
+    );
+  }
+
+  setStopMarkers(stops = []) {
+    this.stopMarkers.forEach((marker) => marker.remove());
+    this.stopMarkers = stops.map((stop, index) => this.createMarker(
+      'passenger-pin-wrapper maplibre-passenger-stop',
+      `<span class="passenger-stop-pin" aria-label="Parada ${index + 1}">${index + 1}</span>`,
+      [stop.lat, stop.lng]
+    ));
   }
 
   updateVehiclePosition(position, bearing = 0, animate = true) {
     if (!this.vehicleMarker) {
-      const icon = L.divIcon({
-        className: 'passenger-vehicle-wrapper',
-        html: `<div class="passenger-vehicle-marker">
+      const element = createHtmlElement(
+        'passenger-vehicle-wrapper maplibre-passenger-vehicle',
+        `<div class="passenger-vehicle-marker">
           <div class="passenger-vehicle-heading">
             <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 27 26l-11-4-11 4L16 3Z"/></svg>
           </div>
-        </div>`,
-        iconSize: [46, 46],
-        iconAnchor: [23, 23]
-      });
-      this.vehicleMarker = L.marker(position, { icon, zIndexOffset: 1000, interactive: false }).addTo(this.map);
-      this.setVehicleBearing(bearing);
+        </div>`
+      );
+      this.vehicleMarker = new maplibregl.Marker({
+        element,
+        anchor: 'center',
+        rotationAlignment: 'map'
+      })
+        .setLngLat(toLngLat(position))
+        .setRotation(Number.isFinite(bearing) ? bearing : 0)
+        .addTo(this.map);
       return;
     }
-
     this.setVehicleBearing(bearing);
     if (!animate) {
-      this.vehicleMarker.setLatLng(position);
+      this.vehicleMarker.setLngLat(toLngLat(position));
       return;
     }
-
     this.animateVehicleTo(position);
   }
 
   setVehicleBearing(bearing) {
-    const heading = this.vehicleMarker?.getElement()?.querySelector('.passenger-vehicle-heading');
-    if (heading) heading.style.transform = `rotate(${Number.isFinite(bearing) ? bearing : 0}deg)`;
+    this.vehicleMarker?.setRotation(Number.isFinite(bearing) ? bearing : 0);
   }
 
   animateVehicleTo(targetPosition) {
     if (this.vehicleAnimationFrame) cancelAnimationFrame(this.vehicleAnimationFrame);
-
-    const start = this.vehicleMarker.getLatLng();
-    const target = L.latLng(targetPosition);
+    const start = this.vehicleMarker.getLngLat();
+    const target = { lat: Number(targetPosition[0]), lng: Number(targetPosition[1]) };
     const startedAt = performance.now();
     const duration = 850;
-
     const frame = (now) => {
       const linear = Math.min(1, (now - startedAt) / duration);
       const eased = 1 - Math.pow(1 - linear, 3);
-      this.vehicleMarker.setLatLng([
-        start.lat + (target.lat - start.lat) * eased,
-        start.lng + (target.lng - start.lng) * eased
+      this.vehicleMarker.setLngLat([
+        start.lng + (target.lng - start.lng) * eased,
+        start.lat + (target.lat - start.lat) * eased
       ]);
       if (linear < 1) this.vehicleAnimationFrame = requestAnimationFrame(frame);
+      else this.vehicleAnimationFrame = null;
     };
-
     this.vehicleAnimationFrame = requestAnimationFrame(frame);
   }
 
   showRouteOverview() {
-    if (!this.routeCoordinates.length) return;
+    const bounds = boundsFromCoordinates(this.routeCoordinates);
+    if (!bounds) return;
     this.isProgrammaticMove = true;
     this.setOverviewState(true);
-    this.map.fitBounds(L.latLngBounds(this.routeCoordinates), {
-      paddingTopLeft: [34, 150],
-      paddingBottomRight: [34, 220],
+    this.map.fitBounds(bounds, {
+      padding: { top: 150, right: 34, bottom: 220, left: 34 },
       maxZoom: 16,
-      animate: true,
-      duration: 0.55
+      duration: 550,
+      pitch: 0,
+      bearing: 0
     });
     window.setTimeout(() => {
       this.isProgrammaticMove = false;

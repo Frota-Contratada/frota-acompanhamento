@@ -1,121 +1,252 @@
 /**
- * Gerenciador do Mapa Leaflet com Visão 3D Close-Up Waze e Câmera Suavizada com Deadband
+ * Gerenciador do mapa vetorial do motorista.
+ * OpenFreeMap fornece os tiles e o MapLibre renderiza câmera, rota e marcadores.
  */
 
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { APP_CONFIG } from '../config.js';
-import { disableLeafletPropagation } from '../../../shared/utils/domUtils.js';
-import { calculateBearing } from '../../../shared/utils/geoUtils.js';
+import { disableMapPropagation } from '../../../shared/utils/domUtils.js';
+import { calculateBearing, calculateDistance } from '../../../shared/utils/geoUtils.js';
+import {
+  OPEN_FREE_MAP_STYLE,
+  boundsFromCoordinates,
+  createHtmlElement,
+  emptyLineFeature,
+  featureCollection,
+  lineFeature,
+  maplibregl,
+  setSourceData,
+  toLatLng,
+  toLngLat
+} from '../../../shared/map/openFreeMap.js';
+
+const MAP_IDS = Object.freeze({
+  routeSource: 'driver-route-source',
+  routeOutline: 'driver-route-outline',
+  routeLine: 'driver-route-line',
+  trafficSource: 'driver-traffic-source',
+  trafficLine: 'driver-traffic-line',
+  approachSource: 'driver-approach-source',
+  approachLine: 'driver-approach-line'
+});
+
+function asPosition(value) {
+  if (Array.isArray(value)) return { lat: Number(value[0]), lng: Number(value[1]) };
+  return { lat: Number(value.lat), lng: Number(value.lng) };
+}
 
 export class MapManager {
   constructor(containerId, options = {}) {
     this.containerId = containerId;
     this.options = options;
     this.map = null;
-    this.rotatorElement = null;
-    this.routePolyline = null;
-    this.routePolylineOutline = null;
+    this.mapLoaded = false;
     this.routeCoordinates = [];
+    this.visibleRouteCoordinates = [];
+    this.trafficSections = [];
     this.visualRouteCoordIndex = 0;
     this.targetRouteCoordIndex = 0;
     this.lastRouteVisualSyncAt = 0;
-    this.trafficPolylineLayers = [];
-    this.trafficLegend = null;
     this.vehicleMarker = null;
+    this.currentLocationMarker = null;
+    this.approachCoordinates = [];
     this.originMarker = null;
     this.destMarker = null;
+    this.stopMarkers = [];
+    this.trafficLegend = null;
+    this.trafficEventsBound = false;
     this.isFollowingVehicle = true;
     this.currentMapBearing = 0;
-    this.cumulativeAngle = 0;
     this.smoothedBearing = 0;
     this.vehicleAnimationFrame = null;
     this.lastVehicleUpdateAt = 0;
-    this.tiltAngle = 24; // Inclinação 3D natural e limpa
-    this.navigationZoom = 18; // Zoom bem próximo estilo Waze
-    this.onVehicleDragEnd = options.onVehicleDragEnd || null;
-    this.onMapClick = options.onMapClick || null;
+    this.navigationPitch = 52;
+    this.navigationZoom = 18.3;
   }
 
   init(initialCenter = [-23.507248, -46.653695], initialZoom = 18) {
-    this.rotatorElement = document.getElementById('map-rotator');
-
-    this.map = L.map(this.containerId, {
-      center: initialCenter,
+    this.map = new maplibregl.Map({
+      container: this.containerId,
+      style: OPEN_FREE_MAP_STYLE,
+      center: toLngLat(initialCenter),
       zoom: initialZoom,
-      zoomControl: false,
-      attributionControl: false,
-      zoomSnap: 0.1,
-      maxZoom: 21
+      pitch: 42,
+      bearing: 0,
+      attributionControl: true,
+      maxZoom: 20,
+      cooperativeGestures: false
     });
 
-    // Camada CartoDB Positron
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 21,
-      maxNativeZoom: 18,
-      subdomains: 'abcd',
-    }).addTo(this.map);
+    const initializeStyleLayers = () => {
+      if (this.mapLoaded || !this.map.getStyle()?.layers?.length) return;
+      this.mapLoaded = true;
+      document.getElementById(this.containerId)?.setAttribute('data-map-ready', 'true');
+      this.ensureMapLayers();
+      this.renderRouteLayers();
+      this.renderApproachLine();
+      this.map.resize();
+    };
+    this.map.on('styledata', initializeStyleLayers);
+    this.map.on('load', initializeStyleLayers);
 
-    // Desativa a propagação de toques/cliques do Leaflet nas camadas de UI
-    const uiOverlay = document.querySelector('.ui-overlay');
-    const setupPageContainer = document.getElementById('setup-page-container');
-    disableLeafletPropagation(uiOverlay);
-    disableLeafletPropagation(setupPageContainer);
-
-    // Modo 2D livre quando o usuário arrastar com o mouse ou dedo
-    this.map.on('dragstart', () => {
-      if (this.isFollowingVehicle) {
+    ['dragstart', 'rotatestart', 'pitchstart', 'zoomstart'].forEach((eventName) => {
+      this.map.on(eventName, (event) => {
+        if (!event.originalEvent || !this.isFollowingVehicle) return;
         this.setFollowVehicle(false);
-        if (this.options.onCameraModeChange) {
-          this.options.onCameraModeChange(false);
-        }
-      }
+        this.options.onCameraModeChange?.(false);
+      });
     });
 
+    disableMapPropagation(document.querySelector('.ui-overlay'));
     return this;
   }
 
-  /**
-   * Renderiza a rota no mapa com traço espesso e visível no zoom próximo
-   */
-  drawRoute(coordinates, trafficSections = []) {
-    if (!coordinates || coordinates.length === 0) return;
+  ensureMapLayers() {
+    if (!this.mapLoaded) return;
 
-    if (this.routePolylineOutline) this.map.removeLayer(this.routePolylineOutline);
-    if (this.routePolyline) this.map.removeLayer(this.routePolyline);
-    this.clearTrafficLayers();
-    this.routeCoordinates = coordinates;
+    if (!this.map.getSource(MAP_IDS.routeSource)) {
+      this.map.addSource(MAP_IDS.routeSource, { type: 'geojson', data: emptyLineFeature() });
+    }
+    if (!this.map.getLayer(MAP_IDS.routeOutline)) {
+      this.map.addLayer({
+        id: MAP_IDS.routeOutline,
+        type: 'line',
+        source: MAP_IDS.routeSource,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': APP_CONFIG.colors.primaryNavy,
+          'line-width': 12,
+          'line-opacity': 0.92
+        }
+      });
+    }
+    if (!this.map.getLayer(MAP_IDS.routeLine)) {
+      this.map.addLayer({
+        id: MAP_IDS.routeLine,
+        type: 'line',
+        source: MAP_IDS.routeSource,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#4F46E5', 'line-width': 7, 'line-opacity': 1 }
+      });
+    }
+
+    if (!this.map.getSource(MAP_IDS.trafficSource)) {
+      this.map.addSource(MAP_IDS.trafficSource, { type: 'geojson', data: featureCollection() });
+    }
+    if (!this.map.getLayer(MAP_IDS.trafficLine)) {
+      this.map.addLayer({
+        id: MAP_IDS.trafficLine,
+        type: 'line',
+        source: MAP_IDS.trafficSource,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': 8,
+          'line-opacity': 1
+        }
+      });
+    }
+
+    if (!this.map.getSource(MAP_IDS.approachSource)) {
+      this.map.addSource(MAP_IDS.approachSource, { type: 'geojson', data: emptyLineFeature() });
+    }
+    if (!this.map.getLayer(MAP_IDS.approachLine)) {
+      this.map.addLayer({
+        id: MAP_IDS.approachLine,
+        type: 'line',
+        source: MAP_IDS.approachSource,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#38BDF8',
+          'line-width': 4,
+          'line-opacity': 0.68,
+          'line-dasharray': [2, 2.5]
+        }
+      });
+    }
+
+    if (!this.trafficEventsBound) {
+      this.trafficEventsBound = true;
+      this.map.on('mouseenter', MAP_IDS.trafficLine, () => {
+        this.map.getCanvas().style.cursor = 'pointer';
+      });
+      this.map.on('mouseleave', MAP_IDS.trafficLine, () => {
+        this.map.getCanvas().style.cursor = '';
+      });
+      this.map.on('click', MAP_IDS.trafficLine, (event) => {
+        const properties = event.features?.[0]?.properties;
+        if (!properties) return;
+        new maplibregl.Popup({
+          closeButton: false,
+          closeOnClick: true,
+          offset: 8,
+          className: 'traffic-map-popup'
+        })
+          .setLngLat(event.lngLat)
+          .setDOMContent(this.createTrafficPopup(properties))
+          .addTo(this.map);
+      });
+    }
+  }
+
+  drawRoute(coordinates, trafficSections = []) {
+    if (!Array.isArray(coordinates) || coordinates.length < 2) return;
+    this.routeCoordinates = coordinates.map((coordinate) => [...coordinate]);
+    this.visibleRouteCoordinates = this.routeCoordinates.map((coordinate) => [...coordinate]);
+    this.trafficSections = (trafficSections || [])
+      .map((section, index) => ({ ...section, id: `traffic-${index}` }))
+      .filter((section) => {
+        const start = Number(section.startPointIndex);
+        const end = Number(section.endPointIndex);
+        return Number.isInteger(start) && Number.isInteger(end) && end > start;
+      });
     this.visualRouteCoordIndex = 0;
     this.targetRouteCoordIndex = 0;
+    this.renderRouteLayers();
+    this.updateTrafficLegend();
+  }
 
-    // Contorno escuro da rota
-    this.routePolylineOutline = L.polyline(coordinates, {
-      color: APP_CONFIG.colors.primaryNavy,
-      weight: 12,
-      opacity: 0.95,
-      lineCap: 'round',
-      lineJoin: 'round',
-      interactive: false
-    }).addTo(this.map);
+  renderRouteLayers(visualPosition = null) {
+    if (!this.mapLoaded) return;
+    this.ensureMapLayers();
+    setSourceData(
+      this.map,
+      MAP_IDS.routeSource,
+      this.visibleRouteCoordinates.length >= 2
+        ? lineFeature(this.visibleRouteCoordinates)
+        : emptyLineFeature()
+    );
+    setSourceData(
+      this.map,
+      MAP_IDS.trafficSource,
+      featureCollection(this.buildTrafficFeatures(visualPosition))
+    );
+  }
 
-    // Linha principal da rota
-    this.routePolyline = L.polyline(coordinates, {
-      color: '#4F46E5',
-      weight: 7,
-      opacity: 1,
-      lineCap: 'round',
-      lineJoin: 'round',
-      interactive: false
-    }).addTo(this.map);
-
-    this.drawTrafficSections(trafficSections);
+  buildTrafficFeatures(visualPosition = null) {
+    return this.trafficSections.flatMap((section) => {
+      const sectionStart = Math.max(0, Number(section.startPointIndex));
+      const sectionEnd = Math.min(this.routeCoordinates.length - 1, Number(section.endPointIndex));
+      if (sectionEnd <= this.visualRouteCoordIndex) return [];
+      const start = Math.max(sectionStart, this.visualRouteCoordIndex + 1);
+      const segment = this.routeCoordinates.slice(start, sectionEnd + 1);
+      if (sectionStart <= this.visualRouteCoordIndex && visualPosition && segment.length) {
+        segment.unshift(visualPosition);
+      }
+      if (segment.length < 2) return [];
+      return [lineFeature(segment, {
+        id: section.id,
+        color: this.trafficColor(section),
+        simpleCategory: String(section.simpleCategory || ''),
+        delayInSeconds: Number(section.delayInSeconds) || 0,
+        effectiveSpeedInKmh: Number(section.effectiveSpeedInKmh) || 0
+      })];
+    });
   }
 
   trafficColor(section) {
     const category = String(section.simpleCategory || '').toUpperCase();
     const delaySeconds = Number(section.delayInSeconds) || 0;
     const magnitude = Number(section.magnitudeOfDelay) || 0;
-
     if (category === 'ROAD_CLOSURE') return '#7F1D1D';
     if (magnitude >= 3 || delaySeconds >= 600) return '#DC2626';
     if (magnitude === 2 || delaySeconds >= 180) return '#F97316';
@@ -133,108 +264,55 @@ export class MapManager {
   }
 
   formatTrafficDelay(seconds) {
-    if (!seconds) return 'Atraso não informado';
-    if (seconds < 60) return `Atraso de ${seconds} s`;
-    return `Atraso de ${Math.max(1, Math.round(seconds / 60))} min`;
+    const value = Number(seconds) || 0;
+    if (!value) return 'Atraso não informado';
+    if (value < 60) return `Atraso de ${value} s`;
+    return `Atraso de ${Math.max(1, Math.round(value / 60))} min`;
   }
 
   createTrafficPopup(section) {
     const content = document.createElement('div');
     content.className = 'traffic-route-popup';
-
     const title = document.createElement('strong');
     title.textContent = this.trafficCategoryLabel(section.simpleCategory);
     content.appendChild(title);
-
     const delay = document.createElement('span');
-    delay.textContent = this.formatTrafficDelay(Number(section.delayInSeconds) || 0);
+    delay.textContent = this.formatTrafficDelay(section.delayInSeconds);
     content.appendChild(delay);
-
     if (Number(section.effectiveSpeedInKmh) > 0) {
       const speed = document.createElement('span');
       speed.textContent = `Velocidade média: ${Math.round(section.effectiveSpeedInKmh)} km/h`;
       content.appendChild(speed);
     }
-
     return content;
   }
 
-  drawTrafficSections(trafficSections) {
-    const validSections = (trafficSections || []).filter((section) => {
-      const start = Number(section.startPointIndex);
-      const end = Number(section.endPointIndex);
-      return Number.isInteger(start) && Number.isInteger(end) && end > start;
-    });
-
-    validSections.forEach((section) => {
-      const start = Math.max(0, Number(section.startPointIndex));
-      const end = Math.min(this.routeCoordinates.length - 1, Number(section.endPointIndex));
-      const segment = this.routeCoordinates.slice(start, end + 1);
-      if (segment.length < 2) return;
-
-      const layer = L.polyline(segment, {
-        color: this.trafficColor(section),
-        weight: 8,
-        opacity: 1,
-        lineCap: 'round',
-        lineJoin: 'round',
-        interactive: true
-      }).addTo(this.map);
-
-      layer.bindPopup(this.createTrafficPopup(section), {
-        className: 'traffic-leaflet-popup',
-        closeButton: false,
-        offset: [0, -4]
-      });
-      layer.trafficStartIndex = start;
-      layer.trafficEndIndex = end;
-      this.trafficPolylineLayers.push(layer);
-    });
-
-    if (this.trafficPolylineLayers.length > 0) this.showTrafficLegend();
-  }
-
-  showTrafficLegend() {
-    this.trafficLegend = L.control({ position: 'bottomleft' });
-    this.trafficLegend.onAdd = () => {
-      const legend = L.DomUtil.create('div', 'traffic-route-legend');
-      legend.innerHTML = `
-        <span><i class="traffic-dot light"></i>Leve</span>
-        <span><i class="traffic-dot moderate"></i>Moderado</span>
-        <span><i class="traffic-dot heavy"></i>Intenso</span>
-      `;
-      L.DomEvent.disableClickPropagation(legend);
-      return legend;
-    };
-    this.trafficLegend.addTo(this.map);
-  }
-
-  clearTrafficLayers() {
-    this.trafficPolylineLayers.forEach((layer) => this.map.removeLayer(layer));
-    this.trafficPolylineLayers = [];
-    if (this.trafficLegend) {
-      this.map.removeControl(this.trafficLegend);
+  updateTrafficLegend() {
+    if (!this.map) return;
+    if (!this.trafficSections.length) {
+      this.trafficLegend?.remove();
       this.trafficLegend = null;
+      return;
     }
+    if (this.trafficLegend) return;
+    this.trafficLegend = createHtmlElement('traffic-route-legend', `
+      <span><i class="traffic-dot light"></i>Leve</span>
+      <span><i class="traffic-dot moderate"></i>Moderado</span>
+      <span><i class="traffic-dot heavy"></i>Intenso</span>
+    `);
+    disableMapPropagation(this.trafficLegend);
+    this.map.getContainer().appendChild(this.trafficLegend);
   }
 
-  /**
-   * Atualiza a polilinha restante em tempo real
-   */
   updateRemainingRoute(remainingCoordinates, closestCoordIndex = 0) {
     if (!remainingCoordinates || remainingCoordinates.length < 2) return;
     this.targetRouteCoordIndex = Math.max(this.visualRouteCoordIndex, closestCoordIndex);
-
-    let visualPosition = remainingCoordinates[0];
-    const displayedPosition = this.vehicleMarker?.getLatLng();
-    if (displayedPosition) visualPosition = [displayedPosition.lat, displayedPosition.lng];
-    this.syncRouteToVisualPosition(visualPosition);
+    const markerPosition = this.vehicleMarker?.getLngLat();
+    this.syncRouteToVisualPosition(markerPosition ? toLatLng(markerPosition) : remainingCoordinates[0]);
   }
 
   syncRouteToVisualPosition(visualPosition) {
     if (!visualPosition || this.routeCoordinates.length < 2) return;
-
-    const displayedPosition = L.latLng(visualPosition);
     let smallestDistance = Infinity;
     let nearestIndex = this.visualRouteCoordIndex;
     const searchStart = Math.max(0, this.visualRouteCoordIndex - 3);
@@ -242,167 +320,165 @@ export class MapManager {
       this.routeCoordinates.length - 1,
       Math.max(this.targetRouteCoordIndex + 25, searchStart + 40)
     );
-
     for (let index = searchStart; index <= searchEnd; index++) {
-      const distance = displayedPosition.distanceTo(L.latLng(this.routeCoordinates[index]));
+      const coordinate = this.routeCoordinates[index];
+      const distance = calculateDistance(
+        visualPosition[0], visualPosition[1], coordinate[0], coordinate[1]
+      );
       if (distance < smallestDistance) {
         smallestDistance = distance;
         nearestIndex = index;
       }
     }
-
     this.visualRouteCoordIndex = Math.max(this.visualRouteCoordIndex, nearestIndex);
-    const visualCoordIndex = this.visualRouteCoordIndex;
-
-    const visualRemainingCoordinates = [
+    this.visibleRouteCoordinates = [
       visualPosition,
-      ...this.routeCoordinates.slice(visualCoordIndex + 1)
+      ...this.routeCoordinates.slice(this.visualRouteCoordIndex + 1)
     ];
-
-    if (this.routePolyline && this.routePolylineOutline) {
-      this.routePolyline.setLatLngs(visualRemainingCoordinates);
-      this.routePolylineOutline.setLatLngs(visualRemainingCoordinates);
-    }
-
-    this.trafficPolylineLayers.forEach((layer) => {
-      if (layer.trafficEndIndex <= visualCoordIndex) {
-        layer.setLatLngs([]);
-        return;
-      }
-
-      const start = Math.max(layer.trafficStartIndex, visualCoordIndex + 1);
-      const segment = this.routeCoordinates.slice(start, layer.trafficEndIndex + 1);
-      if (layer.trafficStartIndex <= visualCoordIndex && segment.length > 0) {
-        segment.unshift(visualPosition);
-      }
-      layer.setLatLngs(segment);
-    });
+    this.renderRouteLayers(visualPosition);
   }
 
-  /**
-   * Ajusta a visualização para a rota inteira
-   */
   fitRouteBounds(coordinates) {
-    if (!coordinates || coordinates.length === 0) return;
-    const bounds = L.latLngBounds(coordinates);
+    const bounds = boundsFromCoordinates(coordinates);
+    if (!bounds) return;
+    this.setFollowVehicle(false);
     this.map.fitBounds(bounds, {
-      paddingTopLeft: [40, 100],
-      paddingBottomRight: [40, 100],
+      padding: { top: 100, right: 40, bottom: 100, left: 40 },
       maxZoom: 18,
-      animate: true
+      duration: 550,
+      pitch: 0,
+      bearing: 0
     });
   }
 
-  /**
-   * Marcador de Origem
-   */
-  setOriginMarker(latLng) {
-    if (this.originMarker) this.map.removeLayer(this.originMarker);
-
-    const icon = L.divIcon({
-      className: 'custom-pin-marker',
-      html: `<div class="origin-pin-icon"></div>`,
-      iconSize: [24, 24],
-      iconAnchor: [12, 12]
-    });
-
-    this.originMarker = L.marker(latLng, { icon }).addTo(this.map);
+  createMarker(className, html, position, options = {}) {
+    const element = createHtmlElement(className, html);
+    return new maplibregl.Marker({
+      element,
+      anchor: options.anchor || 'center',
+      rotationAlignment: options.rotationAlignment || 'viewport',
+      pitchAlignment: options.pitchAlignment || 'viewport'
+    }).setLngLat(toLngLat(position)).addTo(this.map);
   }
 
-  /**
-   * Marcador de Destino
-   */
-  setDestinationMarker(latLng) {
-    if (this.destMarker) this.map.removeLayer(this.destMarker);
-
-    const icon = L.divIcon({
-      className: 'custom-pin-marker',
-      html: `
-        <div class="destination-pin-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
-            <circle cx="12" cy="10" r="3"/>
-          </svg>
-        </div>
-      `,
-      iconSize: [34, 34],
-      iconAnchor: [17, 17]
-    });
-
-    this.destMarker = L.marker(latLng, { icon }).addTo(this.map);
+  setOriginMarker(position) {
+    this.originMarker?.remove();
+    this.originMarker = this.createMarker(
+      'custom-pin-marker maplibre-driver-pin',
+      '<div class="origin-pin-icon"></div>',
+      position
+    );
   }
 
-  /**
-   * Seta de navegação 100% sólida e limpa estilo Waze
-   */
-  getRoundedArrowSvg() {
-    return `
-      <svg viewBox="0 0 36 36" class="waze-arrow-svg">
-        <path d="M18 4.2 
-                 C18.6 4.2 19.2 4.6 19.6 5.2 
-                 L30.8 25.2 
-                 C31.4 26.3 30.6 27.6 29.4 27.2 
-                 L18.6 23.4 
-                 C18.2 23.2 17.8 23.2 17.4 23.4 
-                 L6.6 27.2 
-                 C5.4 27.6 4.6 26.3 5.2 25.2 
-                 L16.4 5.2 
-                 C16.8 4.6 17.4 4.2 18 4.2 Z" 
-              fill="#0084FF" 
-              stroke="#FFFFFF" 
-              stroke-width="2.2" 
-              stroke-linejoin="round" 
-              stroke-linecap="round"/>
-      </svg>
-    `;
+  setDestinationMarker(position) {
+    this.destMarker?.remove();
+    this.destMarker = this.createMarker(
+      'custom-pin-marker maplibre-driver-destination',
+      `<div class="destination-pin-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+      </div>`,
+      position
+    );
   }
 
-  /**
-   * Aplica rotação de câmera suave com Deadband (evita tremores em linhas retas e suaviza curvas)
-   */
-  applyMapTransform(targetBearing) {
-    if (!this.rotatorElement) return;
+  setStopMarkers(stops = []) {
+    this.stopMarkers.forEach((marker) => marker.remove());
+    this.stopMarkers = stops.map((stop, index) => this.createMarker(
+      'custom-pin-marker maplibre-driver-stop',
+      `<div class="route-stop-pin" aria-label="Parada ${index + 1}">${index + 1}</div>`,
+      [stop.lat, stop.lng]
+    ));
+  }
 
-    if (this.isFollowingVehicle) {
-      let diff = (targetBearing - this.smoothedBearing);
-      if (diff > 180) diff -= 360;
-      if (diff < -180) diff += 360;
-
-      // Deadband: Ignora micro-oscilações (< 3.0°) em linhas retas para a câmera não tremer
-      if (Math.abs(diff) > 3.0) {
-        // Amortecimento suave da câmera (damping)
-        this.smoothedBearing += diff * 0.15;
-      }
-
-      let mapDiff = (this.smoothedBearing - (this.cumulativeAngle % 360));
-      if (mapDiff > 180) mapDiff -= 360;
-      if (mapDiff < -180) mapDiff += 360;
-
-      this.cumulativeAngle += mapDiff;
-      this.currentMapBearing = targetBearing;
-
-      this.rotatorElement.style.transform = `scale(1.1) rotateX(${this.tiltAngle}deg) rotate(${-this.cumulativeAngle}deg)`;
+  showCurrentLocationApproach(currentPosition, routeStart, { fitBounds = false } = {}) {
+    if (!currentPosition || !routeStart) return;
+    if (!this.currentLocationMarker) {
+      this.currentLocationMarker = this.createMarker(
+        'custom-pin-marker maplibre-current-location',
+        '<div class="driver-current-location-dot" aria-label="Posição atual do motorista"></div>',
+        currentPosition
+      );
     } else {
-      this.rotatorElement.style.transform = `scale(1) rotateX(0deg) rotate(0deg)`;
+      this.currentLocationMarker.setLngLat(toLngLat(currentPosition));
     }
+    this.approachCoordinates = [currentPosition, routeStart];
+    this.renderApproachLine();
+    if (fitBounds) this.fitApproachBounds(currentPosition, routeStart);
   }
 
-  /**
-   * Atualiza a posição da seta e a rotação amortecida da câmera
-   */
+  renderApproachLine() {
+    if (!this.mapLoaded) return;
+    this.ensureMapLayers();
+    setSourceData(
+      this.map,
+      MAP_IDS.approachSource,
+      this.approachCoordinates.length >= 2
+        ? lineFeature(this.approachCoordinates)
+        : emptyLineFeature()
+    );
+  }
+
+  fitApproachBounds(currentPosition, routeStart) {
+    const bounds = boundsFromCoordinates([currentPosition, routeStart]);
+    if (!bounds) return;
+    this.setFollowVehicle(false);
+    this.map.fitBounds(bounds, {
+      padding: { top: 112, right: 48, bottom: 150, left: 48 },
+      maxZoom: 16,
+      duration: 550,
+      pitch: 0,
+      bearing: 0
+    });
+    this.options.onCameraModeChange?.(false);
+  }
+
+  clearCurrentLocationApproach() {
+    this.currentLocationMarker?.remove();
+    this.currentLocationMarker = null;
+    this.approachCoordinates = [];
+    this.renderApproachLine();
+  }
+
+  getRoundedArrowSvg() {
+    return `<svg viewBox="0 0 36 36" class="waze-arrow-svg">
+      <path d="M18 4.2 C18.6 4.2 19.2 4.6 19.6 5.2 L30.8 25.2 C31.4 26.3 30.6 27.6 29.4 27.2 L18.6 23.4 C18.2 23.2 17.8 23.2 17.4 23.4 L6.6 27.2 C5.4 27.6 4.6 26.3 5.2 25.2 L16.4 5.2 C16.8 4.6 17.4 4.2 18 4.2 Z" fill="#0084FF" stroke="#FFFFFF" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>`;
+  }
+
+  updateSmoothedBearing(targetBearing) {
+    let difference = Number(targetBearing) - this.smoothedBearing;
+    if (difference > 180) difference -= 360;
+    if (difference < -180) difference += 360;
+    if (Math.abs(difference) > 3) this.smoothedBearing += difference * 0.15;
+    this.currentMapBearing = Number(targetBearing) || 0;
+    return this.smoothedBearing;
+  }
+
+  followCamera(position, bearing, immediate = true) {
+    if (!this.isFollowingVehicle || !this.map) return;
+    const camera = {
+      center: toLngLat(position),
+      bearing: this.updateSmoothedBearing(bearing),
+      pitch: this.navigationPitch,
+      zoom: this.navigationZoom
+    };
+    if (immediate) this.map.jumpTo(camera);
+    else this.map.easeTo({ ...camera, duration: 500, essential: true });
+  }
+
   updateVehiclePosition(latLng, bearing = 0, routeCoordIndex = null) {
     if (!latLng) return;
-
-    let targetPosition = L.latLng(latLng);
+    let targetPosition = asPosition(latLng);
     const now = performance.now();
     const followsRouteGeometry = Number.isInteger(routeCoordIndex) && this.routeCoordinates.length > 1;
+
     if (followsRouteGeometry) {
       this.targetRouteCoordIndex = Math.max(this.visualRouteCoordIndex, routeCoordIndex);
-
-      // Ao frear, a distância prevista diminui e pode cair atrás da seta. Nunca
-      // permite que a posição visual recue sobre a rota ou inverta a direção.
       if (this.vehicleMarker) {
-        const currentPosition = this.vehicleMarker.getLatLng();
+        const currentPosition = this.vehicleMarker.getLngLat();
         if (routeCoordIndex < this.visualRouteCoordIndex) {
           targetPosition = currentPosition;
         } else if (routeCoordIndex === this.visualRouteCoordIndex) {
@@ -415,181 +491,142 @@ export class MapManager {
 
     if (!this.vehicleMarker) {
       this.smoothedBearing = bearing;
-      this.cumulativeAngle = bearing;
-
-      const icon = L.divIcon({
-        className: 'custom-pin-marker',
-        html: `
-          <div class="waze-vehicle-container" id="waze-vehicle-marker-dom">
-            <div class="waze-vehicle-shadow"></div>
-            <div class="waze-vehicle-arrow-wrapper" style="transform: rotate(${bearing}deg);">
-              ${this.getRoundedArrowSvg()}
-            </div>
-          </div>
-        `,
-        iconSize: [56, 56],
-        iconAnchor: [28, 28]
-      });
-
-      this.vehicleMarker = L.marker(latLng, {
-        icon,
-        draggable: false,
-        interactive: false,
-        zIndexOffset: 1000
-      }).addTo(this.map);
-      this.lastVehicleUpdateAt = now;
-    } else {
-      const elapsedSinceLastReading = this.lastVehicleUpdateAt
-        ? now - this.lastVehicleUpdateAt
-        : 1000;
-      this.lastVehicleUpdateAt = now;
-      const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-      const animationDuration = reduceMotion
-        ? 0
-        : Math.min(2800, Math.max(450, elapsedSinceLastReading * 0.92));
-
-      this.animateVehicleTo(
-        targetPosition,
-        animationDuration,
-        followsRouteGeometry ? this.targetRouteCoordIndex : null,
-        bearing
+      this.currentMapBearing = bearing;
+      const element = createHtmlElement(
+        'custom-pin-marker maplibre-driver-vehicle',
+        `<div class="waze-vehicle-container" id="waze-vehicle-marker-dom">
+          <div class="waze-vehicle-shadow"></div>
+          <div class="waze-vehicle-arrow-wrapper">${this.getRoundedArrowSvg()}</div>
+        </div>`
       );
-      if (!followsRouteGeometry) this.updateVehicleArrow(bearing);
-
-      if (this.isFollowingVehicle && !followsRouteGeometry) {
-        this.map.panTo(targetPosition, {
-          animate: animationDuration > 0,
-          duration: animationDuration / 1000,
-          easeLinearity: 1,
-          noMoveStart: true
-        });
-      }
+      this.vehicleMarker = new maplibregl.Marker({
+        element,
+        anchor: 'center',
+        rotationAlignment: 'map',
+        pitchAlignment: 'viewport'
+      })
+        .setLngLat([targetPosition.lng, targetPosition.lat])
+        .setRotation(bearing)
+        .addTo(this.map);
+      this.lastVehicleUpdateAt = now;
+      this.followCamera([targetPosition.lat, targetPosition.lng], bearing);
+      return;
     }
 
-    if (this.isFollowingVehicle && !followsRouteGeometry) {
-      this.applyMapTransform(bearing);
-      if (!this.vehicleAnimationFrame) {
-        this.map.panTo(targetPosition, { animate: false });
-      }
-    }
+    const elapsed = this.lastVehicleUpdateAt ? now - this.lastVehicleUpdateAt : 1000;
+    this.lastVehicleUpdateAt = now;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const duration = reduceMotion ? 0 : Math.min(2800, Math.max(450, elapsed * 0.92));
+    this.animateVehicleTo(
+      targetPosition,
+      duration,
+      followsRouteGeometry ? this.targetRouteCoordIndex : null,
+      bearing
+    );
   }
 
   updateVehicleArrow(bearing) {
-    const markerElement = this.vehicleMarker?.getElement() || document.getElementById('waze-vehicle-marker-dom');
-    const arrowWrapper = markerElement?.querySelector('.waze-vehicle-arrow-wrapper');
-    if (arrowWrapper) arrowWrapper.style.transform = `rotate(${bearing}deg)`;
+    this.vehicleMarker?.setRotation(Number.isFinite(bearing) ? bearing : this.currentMapBearing);
   }
 
   routeSegmentProgress(position, coordIndex) {
     const start = this.routeCoordinates[coordIndex];
     const end = this.routeCoordinates[coordIndex + 1];
     if (!start || !end) return 1;
-
+    const current = asPosition(position);
     const deltaLat = end[0] - start[0];
     const deltaLng = end[1] - start[1];
     const lengthSquared = deltaLat * deltaLat + deltaLng * deltaLng;
-    if (lengthSquared === 0) return 1;
-
+    if (!lengthSquared) return 1;
     const progress = (
-      (position.lat - start[0]) * deltaLat
-      + (position.lng - start[1]) * deltaLng
+      (current.lat - start[0]) * deltaLat + (current.lng - start[1]) * deltaLng
     ) / lengthSquared;
     return Math.max(0, Math.min(1, progress));
   }
 
   createVehicleAnimationPath(startPosition, targetPosition, targetRouteIndex) {
     if (!Number.isInteger(targetRouteIndex) || this.routeCoordinates.length < 2) {
-      return [startPosition, targetPosition];
+      return [asPosition(startPosition), asPosition(targetPosition)];
     }
-
     const endIndex = Math.min(this.routeCoordinates.length - 1, targetRouteIndex);
-    const points = [startPosition];
+    const points = [asPosition(startPosition)];
     for (let index = this.visualRouteCoordIndex + 1; index <= endIndex; index++) {
-      points.push(L.latLng(this.routeCoordinates[index]));
+      points.push(asPosition(this.routeCoordinates[index]));
     }
-    if (points[points.length - 1].distanceTo(targetPosition) > 0.3) points.push(targetPosition);
+    const target = asPosition(targetPosition);
+    const last = points[points.length - 1];
+    if (calculateDistance(last.lat, last.lng, target.lat, target.lng) > 0.3) points.push(target);
     return points;
   }
 
   animateVehicleTo(targetPosition, duration, targetRouteIndex = null, fallbackBearing = 0) {
     if (!this.vehicleMarker) return;
     if (this.vehicleAnimationFrame) cancelAnimationFrame(this.vehicleAnimationFrame);
-
-    const startPosition = this.vehicleMarker.getLatLng();
-    const startedAt = performance.now();
+    const startPosition = this.vehicleMarker.getLngLat();
     const path = this.createVehicleAnimationPath(startPosition, targetPosition, targetRouteIndex);
     const segments = [];
     let totalDistance = 0;
-
     for (let index = 0; index < path.length - 1; index++) {
-      const distance = path[index].distanceTo(path[index + 1]);
+      const start = path[index];
+      const end = path[index + 1];
+      const distance = calculateDistance(start.lat, start.lng, end.lat, end.lng);
       if (distance <= 0) continue;
-      segments.push({ start: path[index], end: path[index + 1], distance, offset: totalDistance });
+      segments.push({ start, end, distance, offset: totalDistance });
       totalDistance += distance;
     }
-
-    if (duration <= 0 || totalDistance < 0.5 || segments.length === 0) {
-      this.vehicleMarker.setLatLng(targetPosition);
-      // Sem deslocamento, conserva a direção anterior. Heading de celular
-      // parado ou em frenagem pode oscilar até 180 graus.
+    const target = asPosition(targetPosition);
+    if (duration <= 0 || totalDistance < 0.5 || !segments.length) {
+      this.vehicleMarker.setLngLat([target.lng, target.lat]);
       if (!Number.isInteger(targetRouteIndex)) this.updateVehicleArrow(fallbackBearing);
+      this.followCamera([target.lat, target.lng], fallbackBearing);
       this.vehicleAnimationFrame = null;
       return;
     }
 
+    const startedAt = performance.now();
     const animate = (timestamp) => {
       const progress = Math.min(1, (timestamp - startedAt) / duration);
-      const traveledDistance = totalDistance * progress;
-      const segment = segments.find((item) => traveledDistance <= item.offset + item.distance)
+      const traveled = totalDistance * progress;
+      const segment = segments.find((item) => traveled <= item.offset + item.distance)
         || segments[segments.length - 1];
-      const segmentProgress = Math.min(1, Math.max(0, (traveledDistance - segment.offset) / segment.distance));
-      const latitude = segment.start.lat + (segment.end.lat - segment.start.lat) * segmentProgress;
-      const longitude = segment.start.lng + (segment.end.lng - segment.start.lng) * segmentProgress;
-      this.vehicleMarker.setLatLng([latitude, longitude]);
+      const segmentProgress = Math.min(1, Math.max(0, (traveled - segment.offset) / segment.distance));
+      const lat = segment.start.lat + (segment.end.lat - segment.start.lat) * segmentProgress;
+      const lng = segment.start.lng + (segment.end.lng - segment.start.lng) * segmentProgress;
+      this.vehicleMarker.setLngLat([lng, lat]);
 
-      // A linha acompanha a posição interpolada da seta. O limite de ~12 FPS
-      // evita redesenhar polilinhas grandes em todos os frames da animação.
       if (timestamp - this.lastRouteVisualSyncAt >= 80 || progress === 1) {
         this.lastRouteVisualSyncAt = timestamp;
         const routeBearing = calculateBearing(
-          segment.start.lat,
-          segment.start.lng,
-          segment.end.lat,
-          segment.end.lng
+          segment.start.lat, segment.start.lng, segment.end.lat, segment.end.lng
         );
         this.updateVehicleArrow(routeBearing);
-        this.syncRouteToVisualPosition([latitude, longitude]);
-        if (this.isFollowingVehicle) {
-          this.applyMapTransform(routeBearing);
-          this.map.panTo([latitude, longitude], {
-            animate: true,
-            duration: 0.1,
-            easeLinearity: 1,
-            noMoveStart: true
-          });
-        }
+        if (Number.isInteger(targetRouteIndex)) this.syncRouteToVisualPosition([lat, lng]);
+        this.followCamera([lat, lng], routeBearing);
       }
-
-      if (progress < 1) {
-        this.vehicleAnimationFrame = requestAnimationFrame(animate);
-      } else {
-        this.vehicleAnimationFrame = null;
-      }
+      if (progress < 1) this.vehicleAnimationFrame = requestAnimationFrame(animate);
+      else this.vehicleAnimationFrame = null;
     };
-
     this.vehicleAnimationFrame = requestAnimationFrame(animate);
+  }
+
+  setView(position, zoom = this.navigationZoom, { animate = false } = {}) {
+    const camera = { center: toLngLat(position), zoom };
+    if (animate) this.map.easeTo({ ...camera, duration: 500, essential: true });
+    else this.map.jumpTo(camera);
   }
 
   setFollowVehicle(follow) {
     this.isFollowingVehicle = follow;
     if (follow && this.vehicleMarker) {
-      this.smoothedBearing = this.currentMapBearing;
-      this.cumulativeAngle = this.currentMapBearing;
-      this.map.setView(this.vehicleMarker.getLatLng(), this.navigationZoom, { animate: true });
-      this.applyMapTransform(this.currentMapBearing);
-    } else if (!follow && this.rotatorElement) {
-      this.cumulativeAngle = 0;
-      this.rotatorElement.style.transform = `scale(1) rotateX(0deg) rotate(0deg)`;
+      const position = toLatLng(this.vehicleMarker.getLngLat());
+      this.map.easeTo({
+        center: toLngLat(position),
+        zoom: this.navigationZoom,
+        pitch: this.navigationPitch,
+        bearing: this.currentMapBearing,
+        duration: 500,
+        essential: true
+      });
     }
   }
 }

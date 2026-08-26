@@ -6,12 +6,11 @@
   "scripts": {
     "dev": "node ./node_modules/vite/bin/vite.js --port 3000 --host",
     "build": "node ./node_modules/vite/bin/vite.js build",
-    "preview": "node ./node_modules/vite/bin/vite.js preview --port 3000"
+    "preview": "node ./node_modules/vite/bin/vite.js preview --port 3000",
+    "test": "node --test"
   },
   "dependencies": {
-    "canvas-confetti": "^1.9.4",
-    "leaflet": "^1.9.4",
-    "lucide": "^1.16.0"
+    "maplibre-gl": "^6.6.0"
   },
   "devDependencies": {
     "vite": "^5.4.14"

@@ -81,6 +81,21 @@ button {
   background: #e8edf3;
 }
 
+.passenger-app .maplibregl-map {
+  font-family: var(--font-body);
+}
+
+.passenger-app .maplibregl-ctrl-bottom-right {
+  right: 4px;
+  bottom: calc(190px + env(safe-area-inset-bottom));
+  z-index: 4;
+}
+
+.passenger-app .maplibregl-ctrl-attrib {
+  border-radius: 6px;
+  font-size: 9px;
+}
+
 .passenger-ui-layer {
   position: absolute;
   inset: 0;
@@ -175,26 +190,7 @@ button {
   background: #12b76a;
 }
 
-.passenger-new-route {
-  position: absolute;
-  top: calc(max(16px, env(safe-area-inset-top)) + 88px);
-  left: max(16px, calc((100% - 620px) / 2));
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 13px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: #fff;
-  color: var(--primary-navy);
-  box-shadow: var(--shadow-sm);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.passenger-new-route:active,
 .passenger-overview-button:active,
-.passenger-alert button:active,
 .passenger-simulator button:active {
   transform: scale(0.97);
 }
@@ -416,16 +412,6 @@ button {
   font-size: 10px;
 }
 
-.passenger-alert button {
-  flex: 0 0 auto;
-  padding: 8px 10px;
-  border-radius: 9px;
-  background: #fee2e2;
-  color: #991b1b;
-  font-size: 10px;
-  font-weight: 700;
-}
-
 .passenger-simulator {
   position: absolute;
   top: calc(max(16px, env(safe-area-inset-top)) + 136px);
@@ -474,6 +460,8 @@ button {
 .passenger-vehicle-wrapper {
   border: 0 !important;
   background: transparent !important;
+  pointer-events: none;
+  user-select: none;
 }
 
 .passenger-origin-pin {
@@ -484,6 +472,19 @@ button {
   border-radius: 50%;
   background: var(--accent-blue);
   box-shadow: 0 3px 10px rgba(0, 82, 160, 0.32);
+}
+
+.passenger-stop-pin {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  background: var(--accent-blue);
+  color: #ffffff;
+  font: 700 12px/1 system-ui, sans-serif;
+  box-shadow: 0 3px 10px rgb(15 23 42 / 24%);
 }
 
 .passenger-destination-pin {
@@ -534,8 +535,8 @@ button {
   stroke-linejoin: round;
 }
 
-.leaflet-tooltip {
-  border: 0;
+.passenger-traffic-popup .maplibregl-popup-content {
+  padding: 8px 10px;
   border-radius: 9px;
   color: var(--primary-navy);
   box-shadow: var(--shadow-sm);
@@ -552,10 +553,6 @@ button {
   .passenger-live-badge {
     padding: 6px 8px;
     font-size: 9px;
-  }
-
-  .passenger-new-route {
-    top: calc(max(16px, env(safe-area-inset-top)) + 82px);
   }
 
   .passenger-overview-button {
