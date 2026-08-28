@@ -5,6 +5,9 @@ import mapLibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 maplibregl.setWorkerUrl(mapLibreWorkerUrl);
 
 export const OPEN_FREE_MAP_STYLE = 'https://tiles.openfreemap.org/styles/positron';
+// Acima deste nível, pequenas diferenças entre a geometria viária do TomTom
+// e a base cartográfica do OSM ficam visualmente perceptíveis.
+export const MAX_ROUTE_MAP_ZOOM = 17;
 
 export function toLngLat(position) {
   return [Number(position[1]), Number(position[0])];

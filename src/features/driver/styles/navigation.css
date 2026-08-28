@@ -10,10 +10,11 @@
   background: var(--surface-card, #ffffff);
   color: var(--primary-navy);
   border-radius: var(--radius-lg);
-  padding: 12px 14px;
+  min-height: 82px;
+  padding: 15px 16px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   border: 1px solid var(--border-light);
   box-shadow: 0 12px 32px rgba(30, 34, 79, 0.2);
   z-index: 1000;
@@ -23,9 +24,9 @@
 }
 
 .waze-maneuver-icon-box {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
+  width: 50px;
+  height: 50px;
+  min-width: 50px;
   background: #EEF2FF;
   border: 1.5px solid #C7D2FE;
   border-radius: var(--radius-md);
@@ -36,8 +37,8 @@
 }
 
 .waze-maneuver-svg {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   stroke: var(--accent-blue);
   stroke-width: 2.5;
   fill: none;
@@ -59,24 +60,15 @@
 
 .waze-step-distance {
   font-family: var(--font-heading);
-  font-size: 20px;
+  font-size: 23px;
   font-weight: 800;
   letter-spacing: -0.5px;
   color: var(--primary-navy);
   line-height: 1.1;
 }
 
-.waze-next-preview {
-  font-size: 10.5px;
-  color: var(--text-muted);
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .waze-step-street {
-  font-size: 13.5px;
+  font-size: 15.5px;
   font-weight: 600;
   color: var(--accent-blue);
   white-space: nowrap;
@@ -85,50 +77,11 @@
   margin-top: 1px;
 }
 
-.waze-top-right-actions {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.waze-mini-action-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #F1F5F9;
-  border: 1px solid var(--border-light);
-  color: var(--primary-navy);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-@media (hover: hover) {
-  .waze-mini-action-btn:hover {
-    background: #E2E8F0;
-  }
-}
-
-.waze-mini-action-btn.active {
-  background: var(--accent-blue);
-  box-shadow: none;
-}
-
-.waze-mini-action-btn svg {
-  stroke: var(--primary-navy);
-}
-
-.waze-mini-action-btn.active svg {
-  stroke: #ffffff;
-}
-
 /* Velocímetro estilo Waze */
 .speedometer-widget {
   position: absolute;
   left: 16px;
-  bottom: calc(118px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--ride-sheet-height, 108px) + 10px);
   width: 58px;
   height: 58px;
   background: #11142E;
@@ -212,7 +165,8 @@
 }
 
 .btn-waze-nav,
-.btn-google-maps-nav {
+.btn-google-maps-nav,
+.btn-sound-nav {
   position: absolute;
   right: 16px;
   width: 50px;
@@ -230,11 +184,28 @@
 }
 
 .btn-waze-nav {
-  bottom: calc(178px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--ride-sheet-height, 108px) + 70px);
+}
+
+.btn-sound-nav {
+  bottom: calc(var(--ride-sheet-height, 108px) + 130px);
+  color: #252936;
+}
+
+.btn-sound-nav .muted-slash {
+  display: initial;
+}
+
+.btn-sound-nav.active .muted-slash {
+  display: none;
+}
+
+.btn-sound-nav:not(.active) .sound-waves {
+  display: none;
 }
 
 .btn-google-maps-nav {
-  bottom: calc(118px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--ride-sheet-height, 108px) + 10px);
 }
 
 .waze-icon-badge,
@@ -244,6 +215,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.external-nav-logo {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.waze-nav-logo {
+  width: 27px;
+  height: 27px;
 }
 
 .btn-waze-nav .badge-tooltip,
@@ -265,7 +250,8 @@
 
 @media (hover: hover) {
   .btn-waze-nav:hover,
-  .btn-google-maps-nav:hover {
+  .btn-google-maps-nav:hover,
+  .btn-sound-nav:hover {
     transform: scale(1.08) translateY(-2px);
   }
 
@@ -275,22 +261,22 @@
   }
 }
 
-/* Botão de Recentralizar Mapa (Fica acima do velocímetro e aparece apenas quando o mapa não está centralizado) */
+/* Botão de recentralização alinhado aos atalhos de navegação. */
 .btn-recenter-map {
   position: absolute;
   left: 16px;
-  bottom: calc(186px + env(safe-area-inset-bottom, 0px));
-  width: 58px;
-  height: 58px;
-  border-radius: 50%;
+  bottom: calc(var(--ride-sheet-height, 108px) + 10px);
+  height: 50px;
+  padding: 0 20px 0 15px;
+  border-radius: var(--radius-full);
   background: #ffffff;
   color: var(--primary-navy);
-  border: 1.5px solid var(--border-light);
-  box-shadow: 0 8px 24px rgba(30, 34, 79, 0.25);
+  border: 1px solid var(--border-light);
+  box-shadow: 0 8px 24px rgba(30, 34, 79, 0.22);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   cursor: pointer;
   z-index: 900;
   opacity: 0;
@@ -301,6 +287,7 @@
               transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
               visibility 0.25s ease,
               bottom 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn-recenter-map.visible {
@@ -310,57 +297,69 @@
   transform: translateY(0) scale(1);
 }
 
-.btn-recenter-map svg {
+.btn-recenter-map .recenter-icon {
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  display: grid;
+  place-items: center;
   color: var(--accent-blue);
 }
 
 .btn-recenter-map .recenter-label {
-  font-size: 7.5px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.2px;
   color: var(--primary-navy);
-  margin-top: 1px;
+}
+
+.btn-recenter-map:active {
+  transform: translateY(1px) scale(0.97);
+}
+
+.btn-recenter-map:focus-visible {
+  outline: 3px solid rgba(0, 132, 255, 0.24);
+  outline-offset: 2px;
 }
 
 @media (hover: hover) {
   .btn-recenter-map:hover {
-    transform: scale(1.08);
-    background: #F8FAFC;
-    box-shadow: 0 10px 28px rgba(0, 132, 255, 0.35);
+    transform: translateY(-2px) scale(1.02);
+    background: #ffffff;
+    border-color: rgba(0, 132, 255, 0.2);
+    box-shadow: 0 12px 26px rgba(30, 34, 79, 0.2), 0 2px 6px rgba(0, 132, 255, 0.1);
   }
 }
 
-/* Quando o card inferior expande, move os botões flutuantes para cima */
-.ui-overlay.sheet-expanded .speedometer-widget,
-.ui-overlay.sheet-expanded .btn-google-maps-nav {
-  bottom: calc(445px + env(safe-area-inset-bottom, 0px));
-}
-
-.ui-overlay.sheet-expanded .btn-recenter-map,
-.ui-overlay.sheet-expanded .btn-waze-nav {
-  bottom: calc(505px + env(safe-area-inset-bottom, 0px));
+.ui-overlay.sheet-resizing .speedometer-widget,
+.ui-overlay.sheet-resizing .btn-waze-nav,
+.ui-overlay.sheet-resizing .btn-google-maps-nav,
+.ui-overlay.sheet-resizing .btn-sound-nav,
+.ui-overlay.sheet-resizing .btn-recenter-map {
+  transition-property: transform;
 }
 
 @media (max-width: 480px) {
   .waze-top-bar {
     width: calc(100% - 20px);
-    padding: 10px 12px;
-    gap: 8px;
+    min-height: 78px;
+    padding: 14px;
+    gap: 11px;
   }
 
   .waze-maneuver-icon-box {
-    width: 38px;
-    height: 38px;
-    min-width: 38px;
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
   }
 
   .waze-step-distance {
-    font-size: 18px;
+    font-size: 22px;
   }
 
   .waze-step-street {
-    font-size: 12.5px;
+    font-size: 15px;
   }
 
   .btn-waze-nav .badge-tooltip,

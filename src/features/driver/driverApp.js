@@ -454,9 +454,7 @@ async function initializeApp(options = {}) {
   mapManager.init(fallbackCenter, 19.3);
 
   // 3. Inicializa o Topo Waze
-  navigationBar = new NavigationBar('waze-top-bar', {
-    onToggleSound: (btn) => toggleAudio(btn)
-  });
+  navigationBar = new NavigationBar('waze-top-bar');
   navigationBar.render();
 
   // 4. Inicializa o Velocímetro
@@ -932,6 +930,18 @@ function setupUIEventListeners() {
     if (appState.currentVehiclePos) {
       mapManager.setView(appState.currentVehiclePos, 19.3, { animate: true });
     }
+  });
+
+  addFastClickListener(document.getElementById('btn-sound-nav'), () => {
+    const button = document.getElementById('btn-sound-nav');
+    toggleAudio(button);
+    button?.setAttribute('aria-pressed', String(appState.isSoundActive));
+    button?.setAttribute('aria-label', appState.isSoundActive
+      ? 'Silenciar instruções de voz'
+      : 'Ativar instruções de voz');
+    button?.setAttribute('title', appState.isSoundActive
+      ? 'Silenciar instruções'
+      : 'Ativar instruções');
   });
 
   addFastClickListener(document.getElementById('btn-waze-nav'), () => {

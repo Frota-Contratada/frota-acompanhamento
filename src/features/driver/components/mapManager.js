@@ -7,6 +7,7 @@ import { APP_CONFIG } from '../config.js';
 import { disableMapPropagation } from '../../../shared/utils/domUtils.js';
 import { calculateBearing, calculateDistance } from '../../../shared/utils/geoUtils.js';
 import {
+  MAX_ROUTE_MAP_ZOOM,
   OPEN_FREE_MAP_STYLE,
   boundsFromCoordinates,
   createHtmlElement,
@@ -52,7 +53,6 @@ export class MapManager {
     this.originMarker = null;
     this.destMarker = null;
     this.stopMarkers = [];
-    this.trafficLegend = null;
     this.trafficEventsBound = false;
     this.isFollowingVehicle = true;
     this.currentMapBearing = 0;
@@ -60,7 +60,7 @@ export class MapManager {
     this.vehicleAnimationFrame = null;
     this.lastVehicleUpdateAt = 0;
     this.navigationPitch = 52;
-    this.navigationZoom = 18.3;
+    this.navigationZoom = MAX_ROUTE_MAP_ZOOM;
   }
 
   init(initialCenter = [-23.507248, -46.653695], initialZoom = 18) {
@@ -68,11 +68,11 @@ export class MapManager {
       container: this.containerId,
       style: OPEN_FREE_MAP_STYLE,
       center: toLngLat(initialCenter),
-      zoom: initialZoom,
+      zoom: Math.min(initialZoom, MAX_ROUTE_MAP_ZOOM),
       pitch: 42,
       bearing: 0,
       attributionControl: true,
-      maxZoom: 20,
+      maxZoom: MAX_ROUTE_MAP_ZOOM,
       cooperativeGestures: false
     });
 
@@ -202,7 +202,6 @@ export class MapManager {
     this.visualRouteCoordIndex = 0;
     this.targetRouteCoordIndex = 0;
     this.renderRouteLayers();
-    this.updateTrafficLegend();
   }
 
   renderRouteLayers(visualPosition = null) {
@@ -287,23 +286,6 @@ export class MapManager {
     return content;
   }
 
-  updateTrafficLegend() {
-    if (!this.map) return;
-    if (!this.trafficSections.length) {
-      this.trafficLegend?.remove();
-      this.trafficLegend = null;
-      return;
-    }
-    if (this.trafficLegend) return;
-    this.trafficLegend = createHtmlElement('traffic-route-legend', `
-      <span><i class="traffic-dot light"></i>Leve</span>
-      <span><i class="traffic-dot moderate"></i>Moderado</span>
-      <span><i class="traffic-dot heavy"></i>Intenso</span>
-    `);
-    disableMapPropagation(this.trafficLegend);
-    this.map.getContainer().appendChild(this.trafficLegend);
-  }
-
   updateRemainingRoute(remainingCoordinates, closestCoordIndex = 0) {
     if (!remainingCoordinates || remainingCoordinates.length < 2) return;
     this.targetRouteCoordIndex = Math.max(this.visualRouteCoordIndex, closestCoordIndex);
@@ -344,7 +326,7 @@ export class MapManager {
     this.setFollowVehicle(false);
     this.map.fitBounds(bounds, {
       padding: { top: 100, right: 40, bottom: 100, left: 40 },
-      maxZoom: 18,
+      maxZoom: MAX_ROUTE_MAP_ZOOM,
       duration: 550,
       pitch: 0,
       bearing: 0
@@ -610,7 +592,7 @@ export class MapManager {
   }
 
   setView(position, zoom = this.navigationZoom, { animate = false } = {}) {
-    const camera = { center: toLngLat(position), zoom };
+    const camera = { center: toLngLat(position), zoom: Math.min(zoom, MAX_ROUTE_MAP_ZOOM) };
     if (animate) this.map.easeTo({ ...camera, duration: 500, essential: true });
     else this.map.jumpTo(camera);
   }

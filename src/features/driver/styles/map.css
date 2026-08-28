@@ -44,40 +44,6 @@
   font-size: 9px;
 }
 
-.traffic-route-legend {
-  position: absolute;
-  left: 10px;
-  bottom: calc(126px + env(safe-area-inset-bottom, 0px));
-  z-index: 5;
-  display: flex;
-  gap: 9px;
-  padding: 7px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 999px;
-  background: rgba(30, 34, 79, 0.9);
-  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.28);
-  color: #ffffff;
-  font-size: 9.5px;
-  font-weight: 700;
-  backdrop-filter: blur(8px);
-}
-
-.traffic-route-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.traffic-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.traffic-dot.light { background: #FACC15; }
-.traffic-dot.moderate { background: #F97316; }
-.traffic-dot.heavy { background: #DC2626; }
-
 .traffic-route-popup {
   display: flex;
   min-width: 130px;

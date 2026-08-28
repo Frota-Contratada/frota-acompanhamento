@@ -1,3 +1,6 @@
+import googleMapsLogoUrl from './assets/google-maps-logo.png';
+import wazeLogoUrl from './assets/waze-logo.png';
+
 export function renderDriverShell(root) {
   if (!root) {
     throw new Error('Elemento raiz da aplicação não encontrado.');
@@ -65,39 +68,35 @@ export function renderDriverShell(root) {
         </div>
       </div>
 
-      <button type="button" class="btn-recenter-map" id="fab-recenter" title="Recentralizar no GPS">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="3 11 22 2 13 21 11 13 3 11"></polygon>
-        </svg>
-        <span class="recenter-label">Centrar</span>
+      <button type="button" class="btn-recenter-map" id="fab-recenter" title="Recentralizar no GPS" aria-label="Centralizar mapa no veículo">
+        <span class="recenter-icon" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.5 5.25 20.25 12 17.3l6.75 2.95L12 3.5Z"></path>
+          </svg>
+        </span>
+        <span class="recenter-label">Recentralizar</span>
       </button>
 
       <div class="speedometer-widget" id="speedometer-widget" title="Clique para mudar velocidade"></div>
 
+      <button type="button" class="btn-sound-nav active" id="btn-sound-nav" title="Silenciar instruções" aria-label="Silenciar instruções de voz" aria-pressed="true">
+        <svg class="nav-sound-icon" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M11 5 6.5 9H3v6h3.5L11 19V5Z"></path>
+          <path class="sound-waves" d="M15.2 8.5a5 5 0 0 1 0 7M18.1 5.8a9 9 0 0 1 0 12.4"></path>
+          <path class="muted-slash" d="m15.5 9 5 5m0-5-5 5"></path>
+        </svg>
+      </button>
+
       <button type="button" class="btn-waze-nav" id="btn-waze-nav" title="Abrir trajeto no Waze" aria-label="Abrir trajeto no Waze">
         <span class="waze-icon-badge" aria-hidden="true">
-          <svg width="26" height="26" viewBox="0 0 48 48" fill="none">
-            <path d="M37.5 19.5c0-8.28-6.72-15-15-15s-15 6.72-15 15c0 3.3.9 6.3 2.7 9l-2.7 7.5 7.8-2.4c2.1 1.2 4.5 1.9 7.2 1.9 8.28 0 15-6.72 15-15z" fill="#33CCFF"/>
-            <circle cx="16" cy="18" r="3" fill="#1E224F"/>
-            <circle cx="28" cy="18" r="3" fill="#1E224F"/>
-            <path d="M19 24c1.5 2 4.5 2 6 0" stroke="#1E224F" stroke-width="2.5" stroke-linecap="round"/>
-            <ellipse cx="14" cy="36" rx="3.5" ry="3.5" fill="#1E224F"/>
-            <ellipse cx="28" cy="36" rx="3.5" ry="3.5" fill="#1E224F"/>
-          </svg>
+          <img class="external-nav-logo waze-nav-logo" src="${wazeLogoUrl}" alt="">
         </span>
         <span class="badge-tooltip">Abrir no Waze</span>
       </button>
 
       <button type="button" class="btn-google-maps-nav" id="btn-google-maps-nav" title="Abrir trajeto no Google Maps" aria-label="Abrir trajeto no Google Maps">
         <span class="gmaps-icon-badge" aria-hidden="true">
-          <svg width="26" height="26" viewBox="0 0 48 48">
-            <path fill="#4285F4" d="M24 4C14.06 4 6 12.06 6 22c0 8.07 5.37 14.88 12.75 17.15L24 44l5.25-4.85C36.63 36.88 42 30.07 42 22c0-9.94-8.06-18-18-18z"/>
-            <path fill="#34A853" d="M24 4c-9.94 0-18 8.06-18 18 0 4.12 1.39 7.91 3.73 10.95L24 22V4z"/>
-            <path fill="#FBBC05" d="M24 4v18l14.27 10.95C40.61 29.91 42 26.12 42 22c0-9.94-8.06-18-18-18z"/>
-            <path fill="#EA4335" d="M24 44v-4.85C16.62 36.88 11.25 30.07 11.25 22H6c0 8.07 5.37 14.88 12.75 17.15L24 44z"/>
-            <circle fill="#ffffff" cx="24" cy="22" r="7"/>
-            <circle fill="#4285F4" cx="24" cy="22" r="4.5"/>
-          </svg>
+          <img class="external-nav-logo google-maps-nav-logo" src="${googleMapsLogoUrl}" alt="">
         </span>
         <span class="badge-tooltip">Abrir no Google Maps</span>
       </button>

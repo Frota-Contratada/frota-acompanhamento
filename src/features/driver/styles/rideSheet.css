@@ -20,12 +20,12 @@
   max-height: calc(85vh - env(safe-area-inset-top, 0px));
   touch-action: none;
   user-select: none;
-  padding-bottom: max(14px, env(safe-area-inset-bottom, 14px));
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
 }
 
 /* Modo Retraído / Compacto Waze */
 .ride-bottom-sheet.collapsed {
-  max-height: 108px;
+  max-height: var(--ride-sheet-collapsed-height, 82px);
 }
 
 /* Puxador de Arrasto */
@@ -95,6 +95,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  line-height: 1.2;
 }
 
 .waze-compact-sub .dot-sep {

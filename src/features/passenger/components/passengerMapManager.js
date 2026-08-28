@@ -1,6 +1,7 @@
 import { THEME_COLORS } from '../../../shared/config/routeConfig.js';
 import { disableMapPropagation } from '../../../shared/utils/domUtils.js';
 import {
+  MAX_ROUTE_MAP_ZOOM,
   OPEN_FREE_MAP_STYLE,
   boundsFromCoordinates,
   createHtmlElement,
@@ -44,11 +45,11 @@ export class PassengerMapManager {
       container: this.containerId,
       style: OPEN_FREE_MAP_STYLE,
       center: toLngLat(initialCenter),
-      zoom: initialZoom,
+      zoom: Math.min(initialZoom, MAX_ROUTE_MAP_ZOOM),
       pitch: 0,
       bearing: 0,
       attributionControl: true,
-      maxZoom: 20,
+      maxZoom: MAX_ROUTE_MAP_ZOOM,
       cooperativeGestures: false
     });
 
@@ -70,10 +71,9 @@ export class PassengerMapManager {
       });
     });
 
-    const statusCard = document.querySelector('.passenger-status-card');
     const rideCard = document.getElementById('passenger-ride-card');
     const recenterButton = document.getElementById('passenger-recenter');
-    [statusCard, rideCard, recenterButton].forEach(disableMapPropagation);
+    [rideCard, recenterButton].forEach(disableMapPropagation);
     window.setTimeout(() => this.map.resize(), 0);
     return this;
   }
@@ -89,7 +89,16 @@ export class PassengerMapManager {
         type: 'line',
         source: MAP_IDS.routeSource,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#FFFFFF', 'line-width': 12, 'line-opacity': 0.95 }
+        paint: {
+          'line-color': THEME_COLORS.primaryNavy,
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            8, 5,
+            13, 7,
+            17, 12
+          ],
+          'line-opacity': 0.92
+        }
       });
     }
     if (!this.map.getLayer(MAP_IDS.routeLine)) {
@@ -98,7 +107,16 @@ export class PassengerMapManager {
         type: 'line',
         source: MAP_IDS.routeSource,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': THEME_COLORS.accentBlue, 'line-width': 7, 'line-opacity': 1 }
+        paint: {
+          'line-color': '#4F46E5',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            8, 2.5,
+            13, 4,
+            17, 7
+          ],
+          'line-opacity': 1
+        }
       });
     }
     if (!this.map.getSource(MAP_IDS.trafficSource)) {
@@ -112,7 +130,12 @@ export class PassengerMapManager {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': ['get', 'color'],
-          'line-width': 8,
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            8, 3,
+            13, 4.5,
+            17, 8
+          ],
           'line-opacity': 1
         }
       });

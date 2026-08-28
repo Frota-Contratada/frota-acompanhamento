@@ -107,89 +107,6 @@ button {
   pointer-events: auto;
 }
 
-.passenger-status-card {
-  position: absolute;
-  top: max(16px, env(safe-area-inset-top));
-  left: 50%;
-  width: min(calc(100% - 32px), 620px);
-  min-height: 76px;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 13px 15px;
-  border: 1px solid rgba(226, 232, 240, 0.92);
-  border-radius: 19px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: var(--shadow-md);
-  backdrop-filter: blur(14px);
-}
-
-.passenger-status-icon {
-  width: 43px;
-  height: 43px;
-  flex: 0 0 43px;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: #eef6ff;
-}
-
-.passenger-status-icon span {
-  width: 16px;
-  height: 16px;
-  border: 4px solid var(--accent-blue);
-  border-radius: 50%;
-  box-shadow: 0 0 0 5px rgba(0, 132, 255, 0.12);
-}
-
-.passenger-status-copy {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.passenger-eyebrow {
-  color: #667085;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.passenger-status-copy strong {
-  overflow: hidden;
-  color: var(--primary-navy);
-  font-family: var(--font-heading);
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.passenger-live-badge {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 9px;
-  border-radius: 999px;
-  background: #ecfdf3;
-  color: #067647;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.passenger-live-badge i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #12b76a;
-}
-
 .passenger-overview-button:active,
 .passenger-simulator button:active {
   transform: scale(0.97);
@@ -546,15 +463,6 @@ button {
 }
 
 @media (max-width: 480px) {
-  .passenger-status-card {
-    min-height: 70px;
-  }
-
-  .passenger-live-badge {
-    padding: 6px 8px;
-    font-size: 9px;
-  }
-
   .passenger-overview-button {
     bottom: calc(197px + env(safe-area-inset-bottom));
   }

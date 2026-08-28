@@ -4,7 +4,6 @@
  */
 
 import { formatWazeDistance } from '../../../shared/utils/geoUtils.js';
-import { addFastClickListener } from '../../../shared/utils/domUtils.js';
 
 export class NavigationBar {
   constructor(elementId, options = {}) {
@@ -132,7 +131,6 @@ export class NavigationBar {
           <div class="waze-step-street">Preparando rota</div>
         </div>
       `;
-      this.bindEvents();
       return;
     }
 
@@ -149,31 +147,7 @@ export class NavigationBar {
           <span class="waze-step-distance">${formattedDist}</span>
         </div>
         <div class="waze-step-street" title="${street}">${street}</div>
-        ${this.nextStep ? `
-          <div class="waze-next-preview">
-            <span>Depois: ${this.nextStep.instruction}</span>
-          </div>
-        ` : ''}
-      </div>
-      <div class="waze-top-right-actions">
-        <button class="waze-mini-action-btn active" id="top-btn-sound" title="Alternar voz do GPS">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
-          </svg>
-        </button>
       </div>
     `;
-
-    this.bindEvents();
-  }
-
-  bindEvents() {
-    const soundBtn = this.container.querySelector('#top-btn-sound');
-    if (soundBtn && this.options.onToggleSound) {
-      addFastClickListener(soundBtn, () => {
-        this.options.onToggleSound(soundBtn);
-      });
-    }
   }
 }

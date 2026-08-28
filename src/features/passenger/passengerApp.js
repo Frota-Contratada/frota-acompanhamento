@@ -54,7 +54,6 @@ async function initializePassengerApp(options = {}) {
 
   rideCard = new PassengerRideCard('passenger-ride-card');
   rideCard.setRouteInfo('Localização atual do veículo', passengerState.destination.name);
-  updateDestinationTitle();
 
   bindPassengerEvents();
   initializeSimulatorPanel();
@@ -92,7 +91,6 @@ function applyAuthoritativeRoute(canonicalRoute, { initial = false } = {}) {
   mapManager.setStopMarkers(canonicalRoute.stops);
   rideCard.setRouteInfo(canonicalRoute.origin.label, canonicalRoute.destination.label);
   rideCard.updateMetrics(routeData.distanceMeters, routeData.durationSeconds, routeData.trafficDelaySeconds);
-  updateDestinationTitle();
   if (initial || mapManager.isOverview) mapManager.showRouteOverview();
   return true;
 }
@@ -111,22 +109,6 @@ function applyAuthoritativeVehicle(position, { animate = true } = {}) {
 
 function setPassengerTripStatus(status) {
   passengerState.tripStatus = status;
-  updatePassengerStatusLabel();
-}
-
-function updatePassengerStatusLabel() {
-  const status = document.querySelector('.passenger-eyebrow');
-  const liveBadge = document.querySelector('.passenger-live-badge');
-  if (!status) return;
-  if (passengerState.tripStatus === 'finished' || passengerState.tripStatus === 'completed') {
-    status.textContent = 'Corrida finalizada';
-    if (liveBadge) liveBadge.hidden = true;
-  } else if (passengerState.waiting) {
-    status.textContent = 'Motorista aguardando passageiro';
-  } else {
-    status.textContent = 'Corrida em andamento';
-    if (liveBadge) liveBadge.hidden = false;
-  }
 }
 
 function handleFlutterTripMessage(message) {
@@ -149,7 +131,6 @@ function handleFlutterTripMessage(message) {
     if (applyAuthoritativeRoute(payload)) hideAlert();
   } else if (type === 'waiting.changed') {
     passengerState.waiting = payload.active;
-    updatePassengerStatusLabel();
   } else if (type === 'trip.statusChanged') {
     setPassengerTripStatus(payload.tripStatus);
   } else if (type === 'connection.changed') {
@@ -158,11 +139,6 @@ function handleFlutterTripMessage(message) {
   } else if (type === 'command.failed') {
     showAlert(payload.reason || 'Não foi possível atualizar a corrida.');
   }
-}
-
-function updateDestinationTitle() {
-  const element = document.getElementById('passenger-destination-name');
-  if (element) element.textContent = passengerState.destination?.name || 'Destino da corrida';
 }
 
 function updateVehicle(position, sensorBearing = null, speedKmH = 0, options = {}) {
@@ -234,10 +210,6 @@ function updateRouteProgress(position) {
 
   rideCard.updateMetrics(remainingDistance, remainingDuration, remainingTrafficDelay);
 
-  if (remainingDistance <= 35) {
-    const status = document.querySelector('.passenger-eyebrow');
-    if (status) status.textContent = 'Veículo chegou ao destino';
-  }
 }
 
 function updateOverviewButton(isOverview) {

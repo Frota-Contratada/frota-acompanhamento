@@ -34,6 +34,9 @@ export class RideSheet {
     this.startY = 0;
     this.currentTranslateY = 0;
     this.dragCleanup = null;
+    this.sheetResizeObserver = null;
+    this.sheetResizeTimer = null;
+    this.viewportResizeHandler = null;
   }
 
   setRouteInfo(originName, destName) {
@@ -52,6 +55,52 @@ export class RideSheet {
     this.setExpanded(!this.isExpanded);
   }
 
+  updateFloatingButtonsOffset() {
+    const uiOverlay = document.querySelector('.ui-overlay');
+    if (!uiOverlay || !this.container) return;
+    const renderedHeight = this.container.getBoundingClientRect().height;
+    if (renderedHeight > 0) {
+      uiOverlay.style.setProperty('--ride-sheet-height', `${renderedHeight.toFixed(2)}px`);
+    }
+  }
+
+  measureCollapsedHeight() {
+    if (!this.container) return 82;
+    const compactBar = this.container.querySelector('.waze-compact-bar');
+    if (!compactBar) return 82;
+    const containerRect = this.container.getBoundingClientRect();
+    const compactRect = compactBar.getBoundingClientRect();
+    const paddingBottom = Number.parseFloat(getComputedStyle(this.container).paddingBottom) || 0;
+    return Math.ceil(compactRect.bottom - containerRect.top + paddingBottom);
+  }
+
+  syncCollapsedHeight() {
+    if (!this.container) return 82;
+    const collapsedHeight = this.measureCollapsedHeight();
+    const value = `${collapsedHeight}px`;
+    if (this.container.style.getPropertyValue('--ride-sheet-collapsed-height') !== value) {
+      this.container.style.setProperty('--ride-sheet-collapsed-height', value);
+    }
+    return collapsedHeight;
+  }
+
+  observeRenderedHeight() {
+    if (this.sheetResizeObserver || !this.container) return;
+    if ('ResizeObserver' in window) {
+      this.sheetResizeObserver = new ResizeObserver(() => this.updateFloatingButtonsOffset());
+      this.sheetResizeObserver.observe(this.container);
+    }
+    if (!this.viewportResizeHandler) {
+      this.viewportResizeHandler = () => window.requestAnimationFrame(() => {
+        this.syncCollapsedHeight();
+        this.updateFloatingButtonsOffset();
+      });
+      window.addEventListener('resize', this.viewportResizeHandler);
+      window.visualViewport?.addEventListener('resize', this.viewportResizeHandler);
+    }
+    this.updateFloatingButtonsOffset();
+  }
+
   setExpanded(expanded) {
     this.isExpanded = expanded;
     if (this.container) {
@@ -62,8 +111,14 @@ export class RideSheet {
       this.container.classList.remove('dragging');
       const uiOverlay = document.querySelector('.ui-overlay');
       if (uiOverlay) {
+        uiOverlay.classList.add('sheet-resizing');
         uiOverlay.classList.toggle('sheet-expanded', this.isExpanded);
       }
+      window.clearTimeout(this.sheetResizeTimer);
+      this.sheetResizeTimer = window.setTimeout(() => {
+        uiOverlay?.classList.remove('sheet-resizing');
+        this.updateFloatingButtonsOffset();
+      }, 380);
     }
   }
 
@@ -195,6 +250,11 @@ export class RideSheet {
     `;
 
     this.bindEvents();
+    this.observeRenderedHeight();
+    window.requestAnimationFrame(() => {
+      this.syncCollapsedHeight();
+      this.updateFloatingButtonsOffset();
+    });
   }
 
   bindEvents() {
@@ -238,7 +298,7 @@ export class RideSheet {
     let startY = 0;
     let currentY = 0;
     let startHeight = 0;
-    let collapsedHeight = 108;
+    let collapsedHeight = this.syncCollapsedHeight();
     let expandedHeight = 0;
     let activePointerId = null;
     this.hasDragged = false;
@@ -249,9 +309,10 @@ export class RideSheet {
       this.hasDragged = false;
       startY = e.clientY;
       currentY = startY;
-      collapsedHeight = Math.min(108, element.scrollHeight);
+      collapsedHeight = this.syncCollapsedHeight();
       expandedHeight = Math.max(collapsedHeight, Math.min(element.scrollHeight, window.innerHeight * 0.85));
       startHeight = element.getBoundingClientRect().height;
+      document.querySelector('.ui-overlay')?.classList.add('sheet-resizing');
       element.setPointerCapture?.(e.pointerId);
       element.classList.add('dragging');
       element.style.transition = 'none';
@@ -274,6 +335,7 @@ export class RideSheet {
       const progress = (nextHeight - collapsedHeight) / range;
       element.style.maxHeight = `${nextHeight}px`;
       element.style.setProperty('--sheet-drag-progress', progress.toFixed(3));
+      this.updateFloatingButtonsOffset();
     };
 
     const onPointerUp = (e) => {
@@ -290,32 +352,40 @@ export class RideSheet {
       this.isExpanded = shouldExpand;
       element.classList.toggle('collapsed', !shouldExpand);
       const uiOverlay = document.querySelector('.ui-overlay');
-      if (uiOverlay) uiOverlay.classList.toggle('sheet-expanded', shouldExpand);
+      if (uiOverlay) {
+        uiOverlay.classList.toggle('sheet-expanded', shouldExpand);
+      }
+
+      const targetHeight = shouldExpand ? expandedHeight : collapsedHeight;
 
       element.style.transition = 'max-height 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
       element.style.maxHeight = `${currentHeight}px`;
       element.style.setProperty('--sheet-drag-progress', shouldExpand ? '1' : '0');
       void element.offsetHeight;
-      element.style.maxHeight = `${shouldExpand ? expandedHeight : collapsedHeight}px`;
+      element.style.maxHeight = `${targetHeight}px`;
 
       window.setTimeout(() => {
         element.classList.remove('dragging');
         element.style.transition = '';
         element.style.maxHeight = '';
         element.style.removeProperty('--sheet-drag-progress');
+        uiOverlay?.classList.remove('sheet-resizing');
+        this.updateFloatingButtonsOffset();
       }, 300);
     };
 
     element.addEventListener('pointerdown', onPointerDown);
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-    window.addEventListener('pointercancel', onPointerUp);
+    // O pointer capture mantém todos os movimentos na própria aba. Isso evita
+    // que controles flutuantes ou a camada do mapa interrompam o gesto.
+    element.addEventListener('pointermove', onPointerMove);
+    element.addEventListener('pointerup', onPointerUp);
+    element.addEventListener('pointercancel', onPointerUp);
 
     this.dragCleanup = () => {
       element.removeEventListener('pointerdown', onPointerDown);
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-      window.removeEventListener('pointercancel', onPointerUp);
+      element.removeEventListener('pointermove', onPointerMove);
+      element.removeEventListener('pointerup', onPointerUp);
+      element.removeEventListener('pointercancel', onPointerUp);
     };
   }
 }

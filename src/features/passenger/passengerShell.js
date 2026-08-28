@@ -8,17 +8,6 @@ export function renderPassengerShell(root) {
       <div id="passenger-map"></div>
 
       <div class="passenger-ui-layer">
-        <header class="passenger-status-card">
-          <div class="passenger-status-icon" aria-hidden="true">
-            <span></span>
-          </div>
-          <div class="passenger-status-copy">
-            <span class="passenger-eyebrow">Corrida em andamento</span>
-            <strong id="passenger-destination-name">Carregando destino…</strong>
-          </div>
-          <div class="passenger-live-badge"><i></i> Ao vivo</div>
-        </header>
-
         <section class="passenger-simulator" id="passenger-simulator" aria-label="Simulador do veículo" hidden>
           <div>
             <strong>Simulador</strong>
