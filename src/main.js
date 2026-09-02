@@ -1,8 +1,12 @@
 import { bootstrapApp } from './app/bootstrap.js';
 import { resolveAppRole } from './shared/domain/appRoles.js';
-import { createFlutterTripBridge } from './shared/integration/flutterTripBridge.js';
+import { createTripBridge } from './shared/integration/tripBridgeFactory.js';
 
-const tripBridge = createFlutterTripBridge(window);
+const allowedParentOrigins = String(import.meta.env.VITE_PARENT_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const tripBridge = createTripBridge(window, { allowedOrigins: allowedParentOrigins });
 
 bootstrapApp(resolveAppRole(), { tripBridge })
   .then(() => tripBridge.start())

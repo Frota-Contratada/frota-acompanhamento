@@ -1,9 +1,11 @@
-# Integração Flutter ↔ web
+# Integração Flutter ou portal web ↔ acompanhamento
 
 O webapp possui dois modos automáticos:
 
 - **Flutter:** detectado pela presença de `FlutterTripBridge.postMessage`. A
   rota e as posições são recebidas do mobile.
+- **Portal web:** detectado quando a página está dentro de um `iframe`. A
+  comunicação usa `window.postMessage` e aceita somente origens configuradas.
 - **Standalone:** usa uma rota fixa local e mantém somente o simulador para
   desenvolvimento direto no navegador.
 
@@ -16,6 +18,31 @@ O Flutter abre somente `?role=driver` ou `?role=passenger`, injeta
 `flutter.context`. Depois que o web envia `web.ready`, o Flutter entrega
 envelopes pelo evento `flutter.trip` e pelo callback compatível
 `window.FrotaTripBridge.onMessage`. O web deduplica os dois pelo `eventId`.
+
+## Incorporação em um portal web
+
+Configure no build do acompanhamento as origens que poderão incorporá-lo:
+
+```env
+VITE_PARENT_ORIGINS=https://portal.exemplo.com.br,http://localhost:5173
+```
+
+O portal abre `?role=driver` ou `?role=passenger` em um `iframe`. Após o evento
+`load`, envia o contexto usando a origem exata do acompanhamento:
+
+```js
+iframe.contentWindow.postMessage({
+  schemaVersion: 1,
+  type: 'trip.context',
+  tripId: '123'
+}, 'https://acompanhamento.exemplo.com.br');
+```
+
+O portal deve escutar mensagens, validar `event.origin` e aguardar `web.ready`.
+Em seguida, envia `trip.bootstrap` e os demais envelopes pelo mesmo
+`postMessage`. A página incorporada responde com os mesmos comandos já usados
+no Flutter, como `waiting.confirmed`, `route.rerouteRequested` e
+`trip.finishRequested`.
 
 ## Comportamento por papel
 
