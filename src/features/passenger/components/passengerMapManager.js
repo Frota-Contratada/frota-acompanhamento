@@ -12,6 +12,14 @@ import {
   setSourceData,
   toLngLat
 } from '../../../shared/map/openFreeMap.js';
+import {
+  ROUTE_LEG_OPACITY,
+  buildRouteLegFeatures,
+  findStopCoordinateIndices,
+  getActiveLegIndex,
+  getRouteLegRanges,
+  getRouteLegStatus
+} from '../../../shared/map/routeLegs.js';
 
 const MAP_IDS = Object.freeze({
   routeSource: 'passenger-route-source',
@@ -29,6 +37,8 @@ export class PassengerMapManager {
     this.mapLoaded = false;
     this.routeCoordinates = [];
     this.trafficSections = [];
+    this.stopCoordinateIndices = [];
+    this.activeLegIndex = 0;
     this.vehicleMarker = null;
     this.originMarker = null;
     this.destinationMarker = null;
@@ -38,6 +48,8 @@ export class PassengerMapManager {
     this.trafficEventsBound = false;
     this.isProgrammaticMove = false;
     this.isOverview = true;
+    this.rideCard = null;
+    this.rideCardResizeObserver = null;
   }
 
   init(initialCenter, initialZoom = 13) {
@@ -72,10 +84,34 @@ export class PassengerMapManager {
     });
 
     const rideCard = document.getElementById('passenger-ride-card');
+    this.rideCard = rideCard;
     const recenterButton = document.getElementById('passenger-recenter');
     [rideCard, recenterButton].forEach(disableMapPropagation);
+    this.observeRideCardHeight();
     window.setTimeout(() => this.map.resize(), 0);
     return this;
+  }
+
+  observeRideCardHeight() {
+    if (!this.rideCard) return;
+    const sync = () => this.syncRideCardOffset();
+    if ('ResizeObserver' in window) {
+      this.rideCardResizeObserver = new ResizeObserver(sync);
+      this.rideCardResizeObserver.observe(this.rideCard);
+    }
+    window.addEventListener('resize', sync);
+    window.visualViewport?.addEventListener('resize', sync);
+    window.requestAnimationFrame(sync);
+  }
+
+  syncRideCardOffset() {
+    const screen = document.querySelector('.passenger-map-screen');
+    if (!screen || !this.rideCard) return 190;
+    const screenRect = screen.getBoundingClientRect();
+    const cardRect = this.rideCard.getBoundingClientRect();
+    const offset = Math.max(0, screenRect.bottom - cardRect.top);
+    screen.style.setProperty('--passenger-panel-offset', `${Math.ceil(offset)}px`);
+    return offset;
   }
 
   ensureMapLayers() {
@@ -97,7 +133,7 @@ export class PassengerMapManager {
             13, 7,
             17, 12
           ],
-          'line-opacity': 0.92
+          'line-opacity': ['coalesce', ['get', 'outlineOpacity'], 0.92]
         }
       });
     }
@@ -115,7 +151,7 @@ export class PassengerMapManager {
             13, 4,
             17, 7
           ],
-          'line-opacity': 1
+          'line-opacity': ['coalesce', ['get', 'opacity'], 1]
         }
       });
     }
@@ -136,7 +172,7 @@ export class PassengerMapManager {
             13, 4.5,
             17, 8
           ],
-          'line-opacity': 1
+          'line-opacity': ['coalesce', ['get', 'opacity'], 1]
         }
       });
     }
@@ -172,7 +208,7 @@ export class PassengerMapManager {
     this.options.onOverviewChange?.(isOverview);
   }
 
-  drawRoute(coordinates, trafficSections = []) {
+  drawRoute(coordinates, trafficSections = [], stops = []) {
     if (!Array.isArray(coordinates) || coordinates.length < 2) return;
     this.routeCoordinates = coordinates.map((coordinate) => [...coordinate]);
     this.trafficSections = (trafficSections || []).filter((section) => {
@@ -180,27 +216,41 @@ export class PassengerMapManager {
       const end = Number(section.endPointIndex);
       return Number.isInteger(start) && Number.isInteger(end) && end > start;
     });
+    this.stopCoordinateIndices = findStopCoordinateIndices(this.routeCoordinates, stops);
+    this.activeLegIndex = 0;
     this.renderRoute();
   }
 
   renderRoute() {
     if (!this.mapLoaded) return;
     this.ensureMapLayers();
-    setSourceData(
-      this.map,
-      MAP_IDS.routeSource,
-      this.routeCoordinates.length >= 2 ? lineFeature(this.routeCoordinates) : emptyLineFeature()
+    const routeFeatures = buildRouteLegFeatures(
+      this.routeCoordinates,
+      this.stopCoordinateIndices,
+      this.activeLegIndex,
+      lineFeature
+    );
+    setSourceData(this.map, MAP_IDS.routeSource, featureCollection(routeFeatures));
+    const legRanges = getRouteLegRanges(
+      this.routeCoordinates.length,
+      this.stopCoordinateIndices
     );
     const trafficFeatures = this.trafficSections.flatMap((section) => {
       const start = Math.max(0, Number(section.startPointIndex));
       const end = Math.min(this.routeCoordinates.length - 1, Number(section.endPointIndex));
-      const segment = this.routeCoordinates.slice(start, end + 1);
-      if (segment.length < 2) return [];
       const delay = Math.max(0, Number(section.delayInSeconds) || 0);
-      return [lineFeature(segment, {
-        color: this.trafficColor(section),
-        delayText: delay >= 60 ? `${Math.round(delay / 60)} min de atraso` : 'Trânsito lento'
-      })];
+      return legRanges.flatMap((range) => {
+        const segmentStart = Math.max(start, range.startIndex);
+        const segmentEnd = Math.min(end, range.endIndex);
+        const segment = this.routeCoordinates.slice(segmentStart, segmentEnd + 1);
+        if (segment.length < 2) return [];
+        const status = getRouteLegStatus(range.legIndex, this.activeLegIndex);
+        return [lineFeature(segment, {
+          color: this.trafficColor(section),
+          opacity: ROUTE_LEG_OPACITY[status],
+          delayText: delay >= 60 ? `${Math.round(delay / 60)} min de atraso` : 'Trânsito lento'
+        })];
+      });
     });
     setSourceData(this.map, MAP_IDS.trafficSource, featureCollection(trafficFeatures));
   }
@@ -208,6 +258,18 @@ export class PassengerMapManager {
   clearRoute() {
     this.routeCoordinates = [];
     this.trafficSections = [];
+    this.stopCoordinateIndices = [];
+    this.activeLegIndex = 0;
+    this.renderRoute();
+  }
+
+  updateRouteProgress(routeCoordinateIndex) {
+    const nextLegIndex = getActiveLegIndex(
+      routeCoordinateIndex,
+      this.stopCoordinateIndices
+    );
+    if (nextLegIndex === this.activeLegIndex) return;
+    this.activeLegIndex = nextLegIndex;
     this.renderRoute();
   }
 
@@ -312,10 +374,15 @@ export class PassengerMapManager {
   showRouteOverview() {
     const bounds = boundsFromCoordinates(this.routeCoordinates);
     if (!bounds) return;
+    const panelOffset = this.syncRideCardOffset();
+    const bottomPadding = Math.min(
+      window.innerHeight * 0.7,
+      Math.max(220, panelOffset + 28)
+    );
     this.isProgrammaticMove = true;
     this.setOverviewState(true);
     this.map.fitBounds(bounds, {
-      padding: { top: 150, right: 34, bottom: 220, left: 34 },
+      padding: { top: 110, right: 34, bottom: bottomPadding, left: 34 },
       maxZoom: 16,
       duration: 550,
       pitch: 0,

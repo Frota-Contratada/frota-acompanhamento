@@ -85,11 +85,19 @@ function applyAuthoritativeRoute(canonicalRoute, { initial = false } = {}) {
     lng: canonicalRoute.destination.lng
   };
   prepareRouteProgress(routeData.coordinates);
-  mapManager.drawRoute(routeData.coordinates, routeData.trafficSections);
+  mapManager.drawRoute(
+    routeData.coordinates,
+    routeData.trafficSections,
+    canonicalRoute.stops
+  );
   mapManager.setOriginMarker([canonicalRoute.origin.lat, canonicalRoute.origin.lng]);
   mapManager.setDestinationMarker([canonicalRoute.destination.lat, canonicalRoute.destination.lng]);
   mapManager.setStopMarkers(canonicalRoute.stops);
-  rideCard.setRouteInfo(canonicalRoute.origin.label, canonicalRoute.destination.label);
+  rideCard.setRouteInfo(
+    canonicalRoute.origin.label,
+    canonicalRoute.destination.label,
+    canonicalRoute.stops
+  );
   rideCard.updateMetrics(routeData.distanceMeters, routeData.durationSeconds, routeData.trafficDelaySeconds);
   if (initial || mapManager.isOverview) mapManager.showRouteOverview();
   return true;
@@ -202,6 +210,7 @@ function updateRouteProgress(position) {
   if (!routeData?.coordinates?.length || passengerState.routeGeometryDistance <= 0) return;
 
   const match = minDistanceToPolyline(position, routeData.coordinates, 80);
+  mapManager.updateRouteProgress(match.closestIndex);
   const geometryRemaining = passengerState.routeRemainingByIndex[match.closestIndex] || 0;
   const progressRatio = Math.max(0, Math.min(1, geometryRemaining / passengerState.routeGeometryDistance));
   const remainingDistance = routeData.distanceMeters * progressRatio;

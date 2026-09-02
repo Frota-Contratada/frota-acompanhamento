@@ -10,6 +10,8 @@ export const APP_CONFIG = Object.freeze({
   rerouteRetryCooldownMs: 5000,
   stationaryPromptDelayMs: 5 * 60 * 1000,
   stationarySpeedThresholdKmH: 3,
+  stopArrivalThresholdMeters: 55,
+  stopArrivalMaxSpeedKmH: 12,
   waitingResumeSpeedKmH: 5,
   defaultSpeedKmH: 50,
   routeStartArrivalThresholdMeters: 60,

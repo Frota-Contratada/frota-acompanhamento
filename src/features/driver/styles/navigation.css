@@ -1,46 +1,53 @@
 /* Estilos do topo de navegação do motorista. */
 
 .waze-top-bar {
+  --navigation-edge-gap: 12px;
+  --navigation-horizontal-gap: 24px;
   position: absolute;
-  top: 16px;
+  top: var(--navigation-edge-gap);
   left: 50%;
   transform: translateX(-50%);
-  width: 92%;
-  max-width: 520px;
-  background: var(--surface-card, #ffffff);
-  color: var(--primary-navy);
-  border-radius: var(--radius-lg);
-  min-height: 82px;
-  padding: 15px 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border: 1px solid var(--border-light);
-  box-shadow: 0 12px 32px rgba(30, 34, 79, 0.2);
+  width: min(calc(100% - var(--navigation-horizontal-gap)), 560px);
+  color: var(--text-inverse);
   z-index: 1000;
   box-sizing: border-box;
   margin: 0;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  filter: drop-shadow(0 12px 22px rgba(18, 21, 51, 0.24));
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.navigation-primary-card {
+  min-height: 100px;
+  padding: 13px 18px;
+  display: flex;
+  align-items: center;
+  gap: 17px;
+  background: linear-gradient(135deg, var(--primary-navy-light), var(--primary-navy));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 24px 24px 24px 0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.navigation-primary-card.has-next {
+  border-bottom-left-radius: 0;
 }
 
 .waze-maneuver-icon-box {
-  width: 50px;
-  height: 50px;
-  min-width: 50px;
-  background: #EEF2FF;
-  border: 1.5px solid #C7D2FE;
-  border-radius: var(--radius-md);
+  width: 64px;
+  height: 62px;
+  min-width: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  color: #ffffff;
 }
 
 .waze-maneuver-svg {
-  width: 30px;
-  height: 30px;
-  stroke: var(--accent-blue);
-  stroke-width: 2.5;
+  width: 48px;
+  height: 48px;
+  stroke: currentColor;
+  stroke-width: 2.8;
   fill: none;
   filter: none;
 }
@@ -56,25 +63,73 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
+  margin-bottom: 4px;
 }
 
 .waze-step-distance {
-  font-family: var(--font-heading);
-  font-size: 23px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  color: var(--primary-navy);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: #C7D2FE;
   line-height: 1.1;
 }
 
-.waze-step-street {
-  font-size: 15.5px;
+.waze-step-instruction {
+  font-family: var(--font-heading);
+  font-size: clamp(20px, 5.2vw, 28px);
   font-weight: 600;
-  color: var(--accent-blue);
+  line-height: 1.12;
+  letter-spacing: -0.55px;
+  color: #ffffff;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.waze-step-street {
+  font-size: 14px;
+  font-weight: 500;
+  color: #DCE5FF;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-top: 1px;
+  margin-top: 4px;
+}
+
+.navigation-next-card {
+  min-height: 46px;
+  width: max-content;
+  padding: 8px 11px 8px 13px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--primary-navy-dark);
+  color: #ffffff;
+  border-radius: 0 0 18px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 0;
+}
+
+.navigation-next-label {
+  color: #C7D2FE;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.navigation-next-icon {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  flex: 0 0 26px;
+}
+
+.navigation-next-icon .waze-maneuver-svg {
+  width: 26px;
+  height: 26px;
+  stroke-width: 2.6;
 }
 
 /* Velocímetro estilo Waze */
@@ -342,24 +397,44 @@
 
 @media (max-width: 480px) {
   .waze-top-bar {
-    width: calc(100% - 20px);
-    min-height: 78px;
-    padding: 14px;
-    gap: 11px;
+    --navigation-edge-gap: 9px;
+    --navigation-horizontal-gap: 18px;
+  }
+
+  .navigation-primary-card {
+    min-height: 94px;
+    padding: 12px 14px;
+    gap: 12px;
+    border-radius: 21px 21px 21px 0;
+  }
+
+  .navigation-primary-card.has-next {
+    border-bottom-left-radius: 0;
   }
 
   .waze-maneuver-icon-box {
-    width: 48px;
-    height: 48px;
-    min-width: 48px;
+    width: 55px;
+    height: 56px;
+    min-width: 55px;
+  }
+
+  .waze-maneuver-svg {
+    width: 43px;
+    height: 43px;
   }
 
   .waze-step-distance {
-    font-size: 22px;
+    font-size: 16px;
   }
 
-  .waze-step-street {
-    font-size: 15px;
+  .waze-step-instruction {
+    font-size: clamp(19px, 5.7vw, 24px);
+  }
+
+  .navigation-next-card {
+    min-height: 44px;
+    width: max-content;
+    padding: 7px 10px 7px 12px;
   }
 
   .btn-waze-nav .badge-tooltip,

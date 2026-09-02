@@ -10,8 +10,8 @@ npm install
 npm run dev
 ```
 
-- Motorista: `http://localhost:3000/?role=driver`
-- Passageiro: `http://localhost:3000/?role=passenger`
+- Motorista: `http://localhost:3001/?role=driver`
+- Passageiro: `http://localhost:3001/?role=passenger`
 - Testes: `npm test`
 - Build: `npm run build`
 

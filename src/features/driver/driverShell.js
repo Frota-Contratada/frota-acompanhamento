@@ -26,7 +26,7 @@ export function renderDriverShell(root) {
           </svg>
         </div>
         <div class="waiting-mode-info">
-          <strong>Modo de espera</strong>
+          <strong>Modo de parada</strong>
           <span id="waiting-mode-duration">Aguardando passageiro · iniciado agora</span>
         </div>
         <button type="button" class="waiting-mode-resume" id="btn-resume-waiting">Retomar corrida</button>
@@ -106,8 +106,8 @@ export function renderDriverShell(root) {
 
     <div class="stationary-prompt-overlay" id="stationary-prompt" role="dialog" aria-modal="true" aria-labelledby="stationary-prompt-title" hidden>
       <div class="stationary-prompt-card">
-        <p>Notamos que você está parado há mais de 5 minutos.</p>
-        <h2 id="stationary-prompt-title">Está aguardando o passageiro?</h2>
+        <p id="stationary-prompt-description">Notamos que você está parado há mais de 5 minutos.</p>
+        <h2 id="stationary-prompt-title">Deseja entrar no modo de parada?</h2>
         <div class="stationary-prompt-actions">
           <button type="button" class="stationary-prompt-btn no" id="btn-stationary-no">Não</button>
           <button type="button" class="stationary-prompt-btn yes" id="btn-stationary-yes">Sim</button>

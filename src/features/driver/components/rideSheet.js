@@ -25,6 +25,7 @@ export class RideSheet {
     this.waitingMinutes = 10;
     this.originName = 'Rod PR-340 - km 2.5, Jaguapitã';
     this.destName = 'Aeroporto de Londrina';
+    this.stops = [];
     this.remainingDistance = 0;
     this.remainingDuration = 0;
     this.isExpanded = false;
@@ -39,9 +40,10 @@ export class RideSheet {
     this.viewportResizeHandler = null;
   }
 
-  setRouteInfo(originName, destName) {
+  setRouteInfo(originName, destName, stops = []) {
     this.originName = originName;
     this.destName = destName;
+    this.stops = [...stops].sort((a, b) => Number(a.sequence) - Number(b.sequence));
     this.render();
   }
 
@@ -138,13 +140,6 @@ export class RideSheet {
     if (compactDur) compactDur.textContent = durText;
     if (compactDist) compactDist.textContent = distText;
 
-    const expEta = document.getElementById('exp-metric-eta');
-    const expTime = document.getElementById('exp-metric-time');
-    const expDist = document.getElementById('exp-metric-dist');
-
-    if (expEta) expEta.textContent = etaText;
-    if (expTime) expTime.textContent = durText;
-    if (expDist) expDist.textContent = distText;
   }
 
   render() {
@@ -157,7 +152,6 @@ export class RideSheet {
     }
 
     const isWaiting = this.status === 'waiting';
-    const titleText = this.status === 'paused' || isWaiting ? 'Corrida em pausa' : 'Corrida em andamento';
     const etaText = formatETA(this.remainingDuration);
     const durText = formatDuration(this.remainingDuration);
     const distText = formatDistance(this.remainingDistance);
@@ -182,16 +176,7 @@ export class RideSheet {
 
       <!-- 2. GAVETA EXPANDIDA (Anexo 1 SEM botão de finalizar) -->
       <div class="expanded-content-drawer">
-        <div class="ride-sheet-header">
-          <button class="back-circle-btn" id="btn-ride-collapse" title="Recolher">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </button>
-          <span class="ride-sheet-title">${titleText}</span>
-        </div>
-
-        <!-- Linha do Tempo Origem e Destino (Anexo 1) -->
+        <!-- Linha do tempo completa: origem, paradas e destino -->
         <div class="ride-route-timeline">
           <div class="timeline-vertical-line"></div>
 
@@ -205,6 +190,18 @@ export class RideSheet {
               <span class="timeline-point-name">${escapeHtml(this.originName)}</span>
             </div>
           </div>
+
+          ${this.stops.map((stop, index) => `
+            <div class="timeline-point-row">
+              <div class="timeline-point-indicator">
+                <div class="stop-indicator-dot">${index + 1}</div>
+              </div>
+              <div class="timeline-point-details">
+                <span class="timeline-point-label">Parada ${index + 1}</span>
+                <span class="timeline-point-name">${escapeHtml(stop.label)}</span>
+              </div>
+            </div>
+          `).join('')}
 
           <!-- Destino -->
           <div class="timeline-point-row">
@@ -229,23 +226,6 @@ export class RideSheet {
           <span>${isWaiting ? `Aguardando passageiro há ${this.waitingMinutes} minutos` : 'Em trânsito até o destino'}</span>
         </div>
 
-        <!-- Métricas Detalhadas -->
-        <div class="ride-metrics-bar">
-          <div class="metric-item">
-            <span class="metric-val" id="exp-metric-eta">${etaText}</span>
-            <span class="metric-lbl">Chegada</span>
-          </div>
-          <div class="metric-divider"></div>
-          <div class="metric-item">
-            <span class="metric-val" id="exp-metric-time">${durText}</span>
-            <span class="metric-lbl">Tempo</span>
-          </div>
-          <div class="metric-divider"></div>
-          <div class="metric-item">
-            <span class="metric-val" id="exp-metric-dist">${distText}</span>
-            <span class="metric-lbl">Distância</span>
-          </div>
-        </div>
       </div>
     `;
 
@@ -260,7 +240,6 @@ export class RideSheet {
   bindEvents() {
     const compactBar = document.getElementById('waze-compact-bar');
     const dragHandle = document.getElementById('sheet-drag-handle');
-    const collapseBtn = document.getElementById('btn-ride-collapse');
     const statusPill = document.getElementById('btn-toggle-status');
 
     // Clique para expandir / recolher
@@ -270,10 +249,6 @@ export class RideSheet {
           this.toggleExpand();
         }
       });
-    }
-
-    if (collapseBtn) {
-      addFastClickListener(collapseBtn, () => this.setExpanded(false));
     }
 
     if (statusPill) {

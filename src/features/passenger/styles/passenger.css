@@ -87,7 +87,7 @@ button {
 
 .passenger-app .maplibregl-ctrl-bottom-right {
   right: 4px;
-  bottom: calc(190px + env(safe-area-inset-bottom));
+  bottom: var(--passenger-panel-offset, 190px);
   z-index: 4;
 }
 
@@ -115,7 +115,7 @@ button {
 .passenger-overview-button {
   position: absolute;
   left: max(16px, calc((100% - 620px) / 2));
-  bottom: calc(205px + env(safe-area-inset-bottom));
+  bottom: calc(var(--passenger-panel-offset, 190px) + 10px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -209,7 +209,7 @@ button {
   min-height: 94px;
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
-  align-items: center;
+  align-items: stretch;
   gap: 11px;
   padding: 12px 15px 14px;
 }
@@ -235,6 +235,7 @@ button {
 }
 
 .passenger-route-line i,
+.passenger-route-line b,
 .passenger-route-line span {
   position: relative;
   z-index: 1;
@@ -243,6 +244,16 @@ button {
   border-radius: 50%;
   background: #fff;
   border: 3px solid var(--accent-blue);
+}
+
+.passenger-route-line b {
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  border-width: 2px;
+  color: var(--accent-blue);
+  font: 700 7px var(--font-body);
 }
 
 .passenger-route-line span {
@@ -463,10 +474,6 @@ button {
 }
 
 @media (max-width: 480px) {
-  .passenger-overview-button {
-    bottom: calc(197px + env(safe-area-inset-bottom));
-  }
-
   .passenger-ride-card {
     min-height: 166px;
   }

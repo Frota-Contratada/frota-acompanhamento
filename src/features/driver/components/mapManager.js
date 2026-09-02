@@ -19,6 +19,14 @@ import {
   toLatLng,
   toLngLat
 } from '../../../shared/map/openFreeMap.js';
+import {
+  ROUTE_LEG_OPACITY,
+  buildRouteLegFeatures,
+  findStopCoordinateIndices,
+  getActiveLegIndex,
+  getRouteLegRanges,
+  getRouteLegStatus
+} from '../../../shared/map/routeLegs.js';
 
 const MAP_IDS = Object.freeze({
   routeSource: 'driver-route-source',
@@ -44,6 +52,8 @@ export class MapManager {
     this.routeCoordinates = [];
     this.visibleRouteCoordinates = [];
     this.trafficSections = [];
+    this.stopCoordinateIndices = [];
+    this.activeLegIndex = 0;
     this.visualRouteCoordIndex = 0;
     this.targetRouteCoordIndex = 0;
     this.lastRouteVisualSyncAt = 0;
@@ -115,7 +125,7 @@ export class MapManager {
         paint: {
           'line-color': APP_CONFIG.colors.primaryNavy,
           'line-width': 12,
-          'line-opacity': 0.92
+          'line-opacity': ['coalesce', ['get', 'outlineOpacity'], 0.92]
         }
       });
     }
@@ -125,7 +135,11 @@ export class MapManager {
         type: 'line',
         source: MAP_IDS.routeSource,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#4F46E5', 'line-width': 7, 'line-opacity': 1 }
+        paint: {
+          'line-color': '#4F46E5',
+          'line-width': 7,
+          'line-opacity': ['coalesce', ['get', 'opacity'], 1]
+        }
       });
     }
 
@@ -141,7 +155,7 @@ export class MapManager {
         paint: {
           'line-color': ['get', 'color'],
           'line-width': 8,
-          'line-opacity': 1
+          'line-opacity': ['coalesce', ['get', 'opacity'], 1]
         }
       });
     }
@@ -188,7 +202,7 @@ export class MapManager {
     }
   }
 
-  drawRoute(coordinates, trafficSections = []) {
+  drawRoute(coordinates, trafficSections = [], stops = []) {
     if (!Array.isArray(coordinates) || coordinates.length < 2) return;
     this.routeCoordinates = coordinates.map((coordinate) => [...coordinate]);
     this.visibleRouteCoordinates = this.routeCoordinates.map((coordinate) => [...coordinate]);
@@ -199,6 +213,8 @@ export class MapManager {
         const end = Number(section.endPointIndex);
         return Number.isInteger(start) && Number.isInteger(end) && end > start;
       });
+    this.stopCoordinateIndices = findStopCoordinateIndices(this.routeCoordinates, stops);
+    this.activeLegIndex = 0;
     this.visualRouteCoordIndex = 0;
     this.targetRouteCoordIndex = 0;
     this.renderRouteLayers();
@@ -207,13 +223,14 @@ export class MapManager {
   renderRouteLayers(visualPosition = null) {
     if (!this.mapLoaded) return;
     this.ensureMapLayers();
-    setSourceData(
-      this.map,
-      MAP_IDS.routeSource,
-      this.visibleRouteCoordinates.length >= 2
-        ? lineFeature(this.visibleRouteCoordinates)
-        : emptyLineFeature()
+    const routeFeatures = buildRouteLegFeatures(
+      this.routeCoordinates,
+      this.stopCoordinateIndices,
+      this.activeLegIndex,
+      lineFeature,
+      { startIndex: this.visualRouteCoordIndex, startPosition: visualPosition }
     );
+    setSourceData(this.map, MAP_IDS.routeSource, featureCollection(routeFeatures));
     setSourceData(
       this.map,
       MAP_IDS.trafficSource,
@@ -222,23 +239,33 @@ export class MapManager {
   }
 
   buildTrafficFeatures(visualPosition = null) {
+    const legRanges = getRouteLegRanges(
+      this.routeCoordinates.length,
+      this.stopCoordinateIndices
+    );
     return this.trafficSections.flatMap((section) => {
       const sectionStart = Math.max(0, Number(section.startPointIndex));
       const sectionEnd = Math.min(this.routeCoordinates.length - 1, Number(section.endPointIndex));
       if (sectionEnd <= this.visualRouteCoordIndex) return [];
-      const start = Math.max(sectionStart, this.visualRouteCoordIndex + 1);
-      const segment = this.routeCoordinates.slice(start, sectionEnd + 1);
-      if (sectionStart <= this.visualRouteCoordIndex && visualPosition && segment.length) {
-        segment.unshift(visualPosition);
-      }
-      if (segment.length < 2) return [];
-      return [lineFeature(segment, {
-        id: section.id,
-        color: this.trafficColor(section),
-        simpleCategory: String(section.simpleCategory || ''),
-        delayInSeconds: Number(section.delayInSeconds) || 0,
-        effectiveSpeedInKmh: Number(section.effectiveSpeedInKmh) || 0
-      })];
+      return legRanges.flatMap((range) => {
+        const start = Math.max(sectionStart, range.startIndex, this.visualRouteCoordIndex);
+        const end = Math.min(sectionEnd, range.endIndex);
+        if (end <= start) return [];
+        let segment = this.routeCoordinates.slice(start, end + 1);
+        if (start === this.visualRouteCoordIndex && visualPosition) {
+          segment = [visualPosition, ...this.routeCoordinates.slice(start + 1, end + 1)];
+        }
+        if (segment.length < 2) return [];
+        const status = getRouteLegStatus(range.legIndex, this.activeLegIndex);
+        return [lineFeature(segment, {
+          id: `${section.id}-leg-${range.legIndex}`,
+          color: this.trafficColor(section),
+          opacity: ROUTE_LEG_OPACITY[status],
+          simpleCategory: String(section.simpleCategory || ''),
+          delayInSeconds: Number(section.delayInSeconds) || 0,
+          effectiveSpeedInKmh: Number(section.effectiveSpeedInKmh) || 0
+        })];
+      });
     });
   }
 
@@ -313,6 +340,10 @@ export class MapManager {
       }
     }
     this.visualRouteCoordIndex = Math.max(this.visualRouteCoordIndex, nearestIndex);
+    this.activeLegIndex = getActiveLegIndex(
+      this.visualRouteCoordIndex,
+      this.stopCoordinateIndices
+    );
     this.visibleRouteCoordinates = [
       visualPosition,
       ...this.routeCoordinates.slice(this.visualRouteCoordIndex + 1)

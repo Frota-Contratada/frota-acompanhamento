@@ -16,6 +16,8 @@ import { RideSheet } from './components/rideSheet.js';
 import { addFastClickListener } from '../../shared/utils/domUtils.js';
 import { adaptCanonicalRoute } from '../../shared/integration/tripContract.js';
 import { createDemoVehiclePosition, DEMO_CANONICAL_ROUTE } from '../../shared/simulation/demoTrip.js';
+import { findStopCoordinateIndices } from '../../shared/map/routeLegs.js';
+import { hasArrivedAtScheduledStop } from './utils/stopArrival.js';
 import './styles/main.css';
 import './styles/map.css';
 import './styles/navigation.css';
@@ -48,7 +50,11 @@ const appState = {
   tripStatus: 'in_progress',
   pendingCommands: new Map(),
   arrivalPromptShown: false,
-  arrivalPromptDismissedUntil: 0
+  arrivalPromptDismissedUntil: 0,
+  scheduledStops: [],
+  stopCoordinateIndices: [],
+  nextScheduledStopIndex: 0,
+  promptedStopIds: new Set()
 };
 
 const simulatorState = {
@@ -95,11 +101,70 @@ function hideStationaryPrompt() {
   if (prompt) prompt.hidden = true;
 }
 
-function showStationaryPrompt() {
-  if (appState.isWaitingForPassenger || appState.stationaryPromptDismissed) return;
+function showStationaryPrompt({ stop = null, stopIndex = null } = {}) {
+  if (
+    appState.isWaitingForPassenger
+    || (appState.stationaryPromptDismissed && !stop)
+  ) return;
   const prompt = document.getElementById('stationary-prompt');
+  const description = document.getElementById('stationary-prompt-description');
+  const title = document.getElementById('stationary-prompt-title');
+  if (stop) {
+    if (description) {
+      description.textContent = `Você chegou à parada ${Number(stopIndex) + 1}: ${stop.label}.`;
+    }
+    if (title) title.textContent = 'Deseja entrar no modo de parada?';
+  } else {
+    if (description) description.textContent = 'Notamos que você está parado há mais de 5 minutos.';
+    if (title) title.textContent = 'Deseja entrar no modo de parada?';
+  }
   if (prompt) prompt.hidden = false;
-  audioService.speak('Você está aguardando o passageiro?', true);
+  audioService.speak(
+    stop
+      ? `Você chegou à parada ${Number(stopIndex) + 1}. Deseja entrar no modo de parada?`
+      : 'Deseja entrar no modo de parada?',
+    true
+  );
+}
+
+function monitorScheduledStopArrival(state) {
+  if (appState.isWaitingForPassenger || !appState.scheduledStops.length) return;
+  if (!document.getElementById('stationary-prompt')?.hidden) return;
+
+  while (
+    appState.nextScheduledStopIndex < appState.scheduledStops.length
+    && appState.promptedStopIds.has(
+      appState.scheduledStops[appState.nextScheduledStopIndex].id
+    )
+  ) {
+    appState.nextScheduledStopIndex++;
+  }
+
+  const stopIndex = appState.nextScheduledStopIndex;
+  const stop = appState.scheduledStops[stopIndex];
+  if (!stop) return;
+
+  const distanceToStop = calculateDistance(
+    state.position[0],
+    state.position[1],
+    Number(stop.lat),
+    Number(stop.lng)
+  );
+  const coordinateIndex = appState.stopCoordinateIndices[stopIndex];
+  const arrived = hasArrivedAtScheduledStop({
+    distanceToStopMeters: distanceToStop,
+    speedKmH: state.speedKmH,
+    closestCoordIndex: state.closestCoordIndex,
+    stopCoordinateIndex: coordinateIndex,
+    thresholdMeters: APP_CONFIG.stopArrivalThresholdMeters,
+    maxSpeedKmH: APP_CONFIG.stopArrivalMaxSpeedKmH
+  });
+
+  if (!arrived) return;
+  appState.promptedStopIds.add(stop.id);
+  appState.nextScheduledStopIndex++;
+  resetStationaryTracking(false);
+  showStationaryPrompt({ stop, stopIndex });
 }
 
 function clearStationaryTimeout() {
@@ -525,6 +590,7 @@ function applyAuthoritativeRoute(canonicalRoute, { initial = false } = {}) {
   appState.navigationDestination = { ...canonicalRoute.destination };
   appState.arrivalPromptShown = false;
   appState.arrivalPromptDismissedUntil = 0;
+  if (initial) appState.promptedStopIds.clear();
 
   const origin = [canonicalRoute.origin.lat, canonicalRoute.origin.lng];
   const destination = [canonicalRoute.destination.lat, canonicalRoute.destination.lng];
@@ -534,12 +600,20 @@ function applyAuthoritativeRoute(canonicalRoute, { initial = false } = {}) {
     appState.approachVisualShown = false;
     mapManager.clearCurrentLocationApproach();
   }
-  mapManager.drawRoute(routeData.coordinates, routeData.trafficSections);
+  mapManager.drawRoute(
+    routeData.coordinates,
+    routeData.trafficSections,
+    canonicalRoute.stops
+  );
   mapManager.setOriginMarker(origin);
   mapManager.setDestinationMarker(destination);
   mapManager.setStopMarkers(canonicalRoute.stops);
   gpsEngine.setRoute(routeData);
-  rideSheet.setRouteInfo(canonicalRoute.origin.label, canonicalRoute.destination.label);
+  rideSheet.setRouteInfo(
+    canonicalRoute.origin.label,
+    canonicalRoute.destination.label,
+    canonicalRoute.stops
+  );
   rideSheet.updateMetrics(routeData.distanceMeters, routeData.durationSeconds);
   if (routeData.steps.length) {
     navigationBar.update(routeData.steps[0], routeData.steps[0].distanceMeters, routeData.steps[1]);
@@ -556,6 +630,13 @@ function applyAuthoritativeRoute(canonicalRoute, { initial = false } = {}) {
     mapManager.setView(origin, 16);
   }
   appState.activeRouteData.stops = canonicalRoute.stops;
+  appState.scheduledStops = [...canonicalRoute.stops]
+    .sort((a, b) => Number(a.sequence) - Number(b.sequence));
+  appState.stopCoordinateIndices = findStopCoordinateIndices(
+    routeData.coordinates,
+    appState.scheduledStops
+  );
+  appState.nextScheduledStopIndex = 0;
   return true;
 }
 
@@ -726,6 +807,7 @@ function handleGpsUpdate(state) {
   }
 
   rideSheet.updateMetrics(remainingDistanceMeters, remainingDurationSeconds);
+  monitorScheduledStopArrival(state);
   monitorStationaryVehicle(state);
 }
 

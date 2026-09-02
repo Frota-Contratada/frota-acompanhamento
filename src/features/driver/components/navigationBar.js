@@ -5,6 +5,15 @@
 
 import { formatWazeDistance } from '../../../shared/utils/geoUtils.js';
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
 export class NavigationBar {
   constructor(elementId, options = {}) {
     this.container = document.getElementById(elementId);
@@ -118,36 +127,50 @@ export class NavigationBar {
 
     if (!this.currentStep) {
       this.container.innerHTML = `
-        <div class="waze-maneuver-icon-box">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#00E5FF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" class="waze-maneuver-svg">
-            <line x1="12" y1="19" x2="12" y2="5"/>
-            <polyline points="5 12 12 5 19 12"/>
-          </svg>
-        </div>
-        <div class="waze-step-info">
-          <div class="waze-distance-row">
-            <span class="waze-step-distance">Calculando...</span>
+        <div class="navigation-primary-card">
+          <div class="waze-maneuver-icon-box">
+            ${this.getManeuverSvg('arrow-up')}
           </div>
-          <div class="waze-step-street">Preparando rota</div>
+          <div class="waze-step-info">
+            <span class="waze-step-distance">Calculando rota…</span>
+            <div class="waze-step-instruction">Preparando as instruções</div>
+          </div>
         </div>
       `;
       return;
     }
 
     const formattedDist = formatWazeDistance(this.distanceToStep);
-    const street = this.currentStep.rawName || this.currentStep.instruction;
+    const instruction = this.currentStep.instruction || 'Siga pela rota';
+    const street = this.currentStep.rawName || this.currentStep.streetName || '';
+    const showStreet = street
+      && !instruction.toLocaleLowerCase('pt-BR').includes(street.toLocaleLowerCase('pt-BR'));
     const iconSvg = this.getManeuverSvg(this.currentStep.icon);
+    const nextManeuver = this.nextStep
+      ? `<div class="navigation-next-card">
+          <span class="navigation-next-label">Depois</span>
+          <span class="navigation-next-icon" aria-hidden="true">
+            ${this.getManeuverSvg(this.nextStep.icon)}
+          </span>
+        </div>`
+      : '';
 
     this.container.innerHTML = `
-      <div class="waze-maneuver-icon-box">
-        ${iconSvg}
-      </div>
-      <div class="waze-step-info">
-        <div class="waze-distance-row">
-          <span class="waze-step-distance">${formattedDist}</span>
+      <div class="navigation-primary-card ${this.nextStep ? 'has-next' : ''}">
+        <div class="waze-maneuver-icon-box" aria-hidden="true">
+          ${iconSvg}
         </div>
-        <div class="waze-step-street" title="${street}">${street}</div>
+        <div class="waze-step-info">
+          <div class="waze-distance-row">
+            <span class="waze-step-distance">${escapeHtml(formattedDist)}</span>
+          </div>
+          <div class="waze-step-instruction">${escapeHtml(instruction)}</div>
+          ${showStreet
+            ? `<div class="waze-step-street" title="${escapeHtml(street)}">${escapeHtml(street)}</div>`
+            : ''}
+        </div>
       </div>
+      ${nextManeuver}
     `;
   }
 }
