@@ -1,0 +1,145 @@
+name: Build Acompanhamento Image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "deploy/**"
+      - "package.json"
+      - "package-lock.json"
+      - "src/**"
+      - "index.html"
+      - "vite.config.js"
+      - ".github/workflows/build-image.yml"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build acompanhamento image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate build configuration
+        shell: bash
+        env:
+          VITE_PARENT_ORIGINS: ${{ vars.PROD_VITE_PARENT_ORIGINS }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$VITE_PARENT_ORIGINS" ]; then
+            echo "PROD_VITE_PARENT_ORIGINS nao configurada."
+            exit 1
+          fi
+
+      - name: Define image metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SHORT_SHA="${GITHUB_SHA::12}"
+
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "image=frota-acompanhamento:$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "archive=frota-acompanhamento-$SHORT_SHA.tar" >> "$GITHUB_OUTPUT"
+
+      - name: Build production image
+        shell: bash
+        env:
+          VITE_PARENT_ORIGINS: ${{ vars.PROD_VITE_PARENT_ORIGINS }}
+        run: |
+          set -euo pipefail
+
+          docker build \
+            --platform linux/amd64 \
+            --target runner \
+            --build-arg "VITE_PARENT_ORIGINS=$VITE_PARENT_ORIGINS" \
+            --tag "${{ steps.meta.outputs.image }}" \
+            .
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker run \
+            --detach \
+            --name frota-acompanhamento-ci \
+            --publish 127.0.0.1:18082:8081 \
+            "${{ steps.meta.outputs.image }}"
+
+          cleanup() {
+            docker rm -f frota-acompanhamento-ci >/dev/null 2>&1 || true
+          }
+
+          trap cleanup EXIT
+
+          for i in $(seq 1 30); do
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              http://127.0.0.1:18082/health >/dev/null
+            then
+              exit 0
+            fi
+
+            sleep 1
+          done
+
+          docker logs frota-acompanhamento-ci
+          exit 1
+
+      - name: Export image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p artifact
+
+          docker save \
+            "${{ steps.meta.outputs.image }}" \
+            -o "artifact/${{ steps.meta.outputs.archive }}"
+
+          cd artifact
+
+          sha256sum \
+            "${{ steps.meta.outputs.archive }}" \
+            > "${{ steps.meta.outputs.archive }}.sha256"
+
+      - name: Create manifest
+        shell: bash
+        env:
+          VITE_PARENT_ORIGINS: ${{ vars.PROD_VITE_PARENT_ORIGINS }}
+        run: |
+          set -euo pipefail
+
+          cat > artifact/manifest.json <<EOF
+          {
+            "repository": "Frota-Contratada/frota-acompanhamento",
+            "component": "acompanhamento",
+            "commit": "${GITHUB_SHA}",
+            "shortCommit": "${{ steps.meta.outputs.short_sha }}",
+            "image": "${{ steps.meta.outputs.image }}",
+            "archive": "${{ steps.meta.outputs.archive }}",
+            "parentOrigins": "${VITE_PARENT_ORIGINS}"
+          }
+          EOF
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frota-acompanhamento-${{ steps.meta.outputs.short_sha }}
+          path: artifact/
+          if-no-files-found: error
+          retention-days: 14
