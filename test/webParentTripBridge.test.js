@@ -93,3 +93,22 @@ test('recebe eventos da corrida e envia comandos ao parent', () => {
   assert.ok(commandId);
   assert.equal(fakeWindow.parent.messages.at(-1).message.type, 'waiting.confirmed');
 });
+
+test('accepts the HML parent and rejects a lookalike origin', () => {
+  const fakeWindow = new FakeWebWindow();
+  const bridge = new WebParentTripBridge(fakeWindow, {
+    allowedOrigins: ['http://frota.local', 'https://frota-contratada.hml.seara.com.br']
+  });
+  bridge.start();
+  fakeWindow.receive(
+    { schemaVersion: 1, type: 'trip.context', tripId: 'trip-web-1' },
+    'https://frota-contratada.hml.seara.com.br.evil.example'
+  );
+  assert.equal(bridge.context, null);
+  fakeWindow.receive(
+    { schemaVersion: 1, type: 'trip.context', tripId: 'trip-web-1' },
+    'https://frota-contratada.hml.seara.com.br'
+  );
+  assert.equal(bridge.trustedOrigin, 'https://frota-contratada.hml.seara.com.br');
+  assert.equal(fakeWindow.parent.messages[0].targetOrigin, bridge.trustedOrigin);
+});

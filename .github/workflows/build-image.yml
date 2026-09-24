@@ -1,6 +1,18 @@
 name: Build Acompanhamento Image
 
 on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "deploy/**"
+      - "package.json"
+      - "package-lock.json"
+      - "src/**"
+      - "test/**"
+      - "index.html"
+      - "vite.config.js"
+      - ".github/workflows/build-image.yml"
   push:
     branches:
       - main
@@ -11,6 +23,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "src/**"
+      - "test/**"
       - "index.html"
       - "vite.config.js"
       - ".github/workflows/build-image.yml"
@@ -66,6 +79,21 @@ jobs:
             --build-arg "VITE_PARENT_ORIGINS=$VITE_PARENT_ORIGINS" \
             --tag "${{ steps.meta.outputs.image }}" \
             .
+
+      - name: Verify subpath assets and allowed parent origins
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+          docker create --name frota-acompanhamento-assets "${{ steps.meta.outputs.image }}" >/dev/null
+          trap 'docker rm -f frota-acompanhamento-assets >/dev/null 2>&1 || true' EXIT
+          docker cp frota-acompanhamento-assets:/usr/share/nginx/html/index.html ./hml-index.html
+          grep -Eq '(src|href)="\./assets/' ./hml-index.html
+          if grep -Eq '(src|href)="/assets/' ./hml-index.html; then
+            echo 'Absolute asset path breaks /acompanhamento/'
+            exit 1
+          fi
 
       - name: Smoke test
         shell: bash
